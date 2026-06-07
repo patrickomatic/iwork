@@ -2,6 +2,10 @@ use std::path::Path;
 
 use crate::{DocumentKind, Error, InspectionReport, Package};
 
+mod presentation;
+
+pub use presentation::{IndexArchive, Presentation};
+
 #[derive(Debug, Clone)]
 pub struct Document {
     package: Package,
@@ -27,6 +31,10 @@ impl Document {
 
     pub fn package(&self) -> &Package {
         &self.package
+    }
+
+    pub fn presentation(&self) -> Result<Presentation, Error> {
+        Presentation::from_package(&self.package)
     }
 
     pub fn into_bytes(self) -> Vec<u8> {
