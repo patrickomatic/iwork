@@ -1,20 +1,6 @@
 use std::path::Path;
 
-mod error;
-mod inspect;
-mod kind;
-mod package;
-mod plist;
-
-pub mod keynote;
-pub mod numbers;
-pub mod pages;
-
-pub use error::Error;
-pub use inspect::{InspectionReport, count_keywords};
-pub use kind::DocumentKind;
-pub use package::{Entry, Package};
-pub use plist::PropertiesPlist;
+use crate::{DocumentKind, Error, InspectionReport, Package};
 
 #[derive(Debug, Clone)]
 pub struct Document {
@@ -23,6 +9,11 @@ pub struct Document {
 
 impl Document {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+        if DocumentKind::from_path(path.as_ref()) != DocumentKind::Keynote {
+            return Err(Error::UnsupportedDocumentType(
+                path.as_ref().display().to_string(),
+            ));
+        }
         Ok(Self {
             package: Package::open(path)?,
         })
@@ -50,5 +41,3 @@ impl Document {
         self.package.inspect(path)
     }
 }
-#[cfg(test)]
-mod tests;
