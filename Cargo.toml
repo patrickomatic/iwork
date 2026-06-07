@@ -7,3 +7,11 @@ readme = "README.md"
 description = "Rust tooling for reading and writing Apple Numbers files"
 
 [dependencies]
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
