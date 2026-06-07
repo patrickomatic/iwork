@@ -220,6 +220,8 @@ fn pages_document_model_exposes_core_archives() -> Result<(), Error> {
     assert!(model.metadata().header().decode_message().is_ok());
     assert!(model.stylesheet().header().decode_message().is_ok());
     assert!(!model.index_archives().is_empty());
+    assert!(!model.stylesheet_catalog().referenced_object_ids.is_empty());
+    assert!(!model.stylesheet_catalog().font_names.is_empty());
 
     Ok(())
 }
@@ -233,6 +235,13 @@ fn keynote_presentation_exposes_core_archives() -> Result<(), Error> {
     assert!(presentation.metadata().header().decode_message().is_ok());
     assert!(presentation.stylesheet().header().decode_message().is_ok());
     assert!(!presentation.index_archives().is_empty());
+    assert!(
+        !presentation
+            .stylesheet_catalog()
+            .referenced_object_ids
+            .is_empty()
+    );
+    assert!(!presentation.stylesheet_catalog().font_names.is_empty());
 
     Ok(())
 }

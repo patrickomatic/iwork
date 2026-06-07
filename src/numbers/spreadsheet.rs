@@ -1,7 +1,5 @@
 use crate::iwa::IwaArchive;
-use crate::{Error, Package};
-
-use super::StylesheetCatalog;
+use crate::{Error, Package, StylesheetCatalog};
 
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 const DOCUMENT_METADATA_ENTRY: &str = "Index/DocumentMetadata.iwa";

@@ -20,6 +20,7 @@ mod kind;
 mod package;
 mod plist;
 mod protobuf;
+mod stylesheet;
 
 pub mod keynote;
 pub mod numbers;
@@ -32,6 +33,7 @@ pub use kind::DocumentKind;
 pub use package::{Entry, Package};
 pub use plist::PropertiesPlist;
 pub use protobuf::{ProtoField, ProtoMessage, ProtoValue};
+pub use stylesheet::StylesheetCatalog;
 
 #[derive(Debug, Clone)]
 pub struct Document {
