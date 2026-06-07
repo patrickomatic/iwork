@@ -15,9 +15,11 @@ use std::path::Path;
 
 mod error;
 mod inspect;
+mod iwa;
 mod kind;
 mod package;
 mod plist;
+mod protobuf;
 
 pub mod keynote;
 pub mod numbers;
@@ -25,9 +27,11 @@ pub mod pages;
 
 pub use error::Error;
 pub use inspect::{InspectionReport, count_keywords};
+pub use iwa::{IwaArchive, IwaChunk, IwaPacket};
 pub use kind::DocumentKind;
 pub use package::{Entry, Package};
 pub use plist::PropertiesPlist;
+pub use protobuf::{ProtoField, ProtoMessage, ProtoValue};
 
 #[derive(Debug, Clone)]
 pub struct Document {

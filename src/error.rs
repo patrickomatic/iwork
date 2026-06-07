@@ -5,6 +5,7 @@ pub enum Error {
     Io(std::io::Error),
     NotAZipArchive,
     UnsupportedDocumentType(String),
+    UnsupportedIwaChunkType(u8),
     MissingEndOfCentralDirectory,
     InvalidCentralDirectory,
     InvalidLocalFileHeader,
@@ -12,6 +13,7 @@ pub enum Error {
     MissingEntry(String),
     InvalidUtf8(std::string::FromUtf8Error),
     InvalidPlist(&'static str),
+    InvalidIwa(&'static str),
     Truncated(&'static str),
 }
 
@@ -22,6 +24,9 @@ impl fmt::Display for Error {
             Self::NotAZipArchive => write!(f, "file does not look like a zip archive"),
             Self::UnsupportedDocumentType(path) => {
                 write!(f, "unsupported iWork document type: {path}")
+            }
+            Self::UnsupportedIwaChunkType(kind) => {
+                write!(f, "unsupported iwa chunk type: {kind}")
             }
             Self::MissingEndOfCentralDirectory => {
                 write!(f, "could not find end-of-central-directory record")
@@ -37,6 +42,7 @@ impl fmt::Display for Error {
             Self::MissingEntry(path) => write!(f, "missing entry: {path}"),
             Self::InvalidUtf8(error) => write!(f, "invalid UTF-8: {error}"),
             Self::InvalidPlist(message) => write!(f, "invalid plist: {message}"),
+            Self::InvalidIwa(message) => write!(f, "invalid iwa: {message}"),
             Self::Truncated(section) => write!(f, "truncated {section}"),
         }
     }
