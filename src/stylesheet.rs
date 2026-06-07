@@ -11,7 +11,7 @@ pub struct StylesheetCatalog {
 }
 
 impl StylesheetCatalog {
-    pub(crate) fn from_archive(archive: &IwaArchive) -> Self {
+    pub fn from_archive(archive: &IwaArchive) -> Self {
         let referenced_object_ids = archive.leading_object_references();
         let strings = archive.ascii_strings(8);
 
