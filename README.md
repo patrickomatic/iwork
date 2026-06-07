@@ -1,42 +1,81 @@
 # Apple iWork Rust Crate
 
-Rust crate for reading and inspecting Apple iWork packages, with current fixture coverage for Numbers, Pages, and Keynote documents.
+`iwork` is a Rust crate for opening Apple iWork packages (`.numbers`, `.pages`, and `.key`), inspecting a small set of stable metadata, and writing the original package bytes back out unchanged.
 
-## Status
+## What This Crate Does
 
-This repository is in the early reverse-engineering stage. The first job is to build a reliable fixture-driven test harness around real iWork documents, then grow support in narrow slices.
+- opens iWork packages as ZIP containers
+- exposes package entries and raw entry bytes
+- reads `Metadata/Properties.plist`
+- inspects `Index/DocumentStylesheet.iwa` for simple keyword signals
+- preserves the original bytes on write for round-trip workflows
 
-Current focus:
+## Current Guarantees
 
-- open and inspect real Numbers, Pages, and Keynote packages from `examples/`
-- identify stable package metadata and archive structure
-- reverse engineer text and style encoding
-- start with basic formatting such as bold, italic, underline, and strikethrough
-- keep write support intentionally narrow while read-path coverage grows
+- `Document::open` accepts any supported iWork package
+- `numbers::Document`, `pages::Document`, and `keynote::Document` enforce the expected file extension
+- `write` is lossless for the current implementation because it writes the original package bytes back out unchanged
+- fixture coverage exists for Numbers, Pages, and Keynote examples in `examples/`
 
-## Repository layout
+## Usage
 
-- `examples/`: sample `.numbers`, `.pages`, and `.key` files used for inspection and regression testing
-- `tests/`: integration tests and future fixture-based coverage
-- `src/`: crate implementation and command-line tooling
+Add the crate to your project, then open a document and inspect it:
 
-## Development plan
+```rust
+use iwork::Document;
 
-1. Package/container access.
-2. IWA payload discovery and decoding.
-3. Document metadata extraction.
-4. Text runs and basic style attributes.
-5. Small, well-tested write operations.
+fn main() -> Result<(), iwork::Error> {
+    let document = Document::open("examples/numbers/personal_budget.numbers")?;
+    let report = document.inspect("personal_budget.numbers")?;
 
-The first write milestone is intentionally narrow: lossless package round-tripping for Numbers, Pages, and Keynote documents, preserving package integrity and unrelated structures.
+    println!("kind: {}", report.kind.as_str());
+    println!(
+        "file format version: {}",
+        report.properties.file_format_version.as_deref().unwrap_or("<unknown>")
+    );
 
-## Current capabilities
+    Ok(())
+}
+```
 
-- generic `Document` opening for supported iWork package types
-- generic and app-specific `write` support that preserves the original package bytes
-- inspection reports that classify the input as Numbers, Pages, or Keynote by extension
-- app-specific `numbers::Document`, `pages::Document`, and `keynote::Document` entry points that reject the wrong extension
-- fixture coverage across all three document types
+You can also work at the package level:
+
+```rust
+use iwork::Document;
+
+fn main() -> Result<(), iwork::Error> {
+    let document = Document::open("examples/pages/modern_novel.pages")?;
+    let stylesheet = document
+        .package()
+        .entry_bytes("Index/DocumentStylesheet.iwa")?;
+
+    println!("stylesheet bytes: {}", stylesheet.len());
+    Ok(())
+}
+```
+
+App-specific entry points reject mismatched extensions:
+
+```rust
+use iwork::numbers;
+
+fn main() -> Result<(), iwork::Error> {
+    let document = numbers::Document::open("examples/numbers/personal_budget.numbers")?;
+    document.write("/tmp/personal_budget-copy.numbers")?;
+    Ok(())
+}
+```
+
+## Format Notes
+
+The codebase depends on a small set of reverse-engineered format assumptions. Those notes live in [docs/file-format.md](docs/file-format.md), with the most important details also documented directly in `src/package.rs` and `src/plist.rs`.
+
+## Repository Layout
+
+- `src/`: library implementation and the small inspection CLI
+- `examples/`: sample `.numbers`, `.pages`, and `.key` fixtures
+- `tests/`: fixture-driven integration coverage
+- `docs/`: format notes and implementation-oriented documentation
 
 ## License
 

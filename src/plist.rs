@@ -1,3 +1,20 @@
+//! Narrow parser for `Metadata/Properties.plist`.
+//!
+//! Fixture documents have shown that this plist may be either XML or binary.
+//! We only implement the subset needed to surface a stable group of metadata
+//! keys from iWork packages:
+//!
+//! - `documentUUID`
+//! - `fileFormatVersion`
+//! - `isMultiPage`
+//! - `revision`
+//! - `stableDocumentUUID`
+//! - `versionUUID`
+//!
+//! The XML parser accepts only `<string>`, `<true/>`, and `<false/>` values in
+//! a top-level dictionary. The binary parser accepts only the object types that
+//! appear in current fixtures: strings, booleans, and dictionaries.
+
 use std::collections::BTreeMap;
 
 use crate::Error;
@@ -12,6 +29,7 @@ pub struct PropertiesPlist {
     pub version_uuid: Option<String>,
 }
 
+/// Parses the `Metadata/Properties.plist` payload from an iWork package.
 pub fn parse_properties_plist(bytes: &[u8]) -> Result<PropertiesPlist, Error> {
     if bytes.starts_with(b"bplist00") {
         return parse_binary_properties_plist(bytes);
