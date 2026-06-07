@@ -102,10 +102,7 @@ impl IwaArchive {
             let Ok(len) = usize::try_from(len_varint) else {
                 break;
             };
-            let field_end = match cursor.checked_add(len) {
-                Some(end) => end,
-                None => break,
-            };
+            let Some(field_end) = cursor.checked_add(len) else { break };
             let Some(value) = self.body.get(cursor..field_end) else {
                 break;
             };
@@ -151,10 +148,7 @@ impl IwaArchive {
             let Ok(len) = usize::try_from(len_varint) else {
                 return entry_start;
             };
-            let field_end = match cursor.checked_add(len) {
-                Some(end) => end,
-                None => return entry_start,
-            };
+            let Some(field_end) = cursor.checked_add(len) else { return entry_start };
             let Some(value) = self.body.get(cursor..field_end) else {
                 return entry_start;
             };
@@ -240,34 +234,34 @@ impl IwaArchiveDescriptor {
         let mut body_hint = None;
         let mut object_references = Vec::new();
 
-        if let Some(info_field) = message.field(2) {
-            if let Some(info) = maybe_decode_message(&info_field.value) {
-                kind_hint = info.field(1).and_then(|field| field.value.as_varint());
-                body_hint = info.field(3).and_then(|field| field.value.as_varint());
+        if let Some(info_field) = message.field(2)
+            && let Some(info) = maybe_decode_message(&info_field.value)
+        {
+            kind_hint = info.field(1).and_then(|field| field.value.as_varint());
+            body_hint = info.field(3).and_then(|field| field.value.as_varint());
 
-                for object_field in info.fields_by_number(4) {
-                    let Some(object_message) = maybe_decode_message(&object_field.value) else {
-                        continue;
-                    };
+            for object_field in info.fields_by_number(4) {
+                let Some(object_message) = maybe_decode_message(&object_field.value) else {
+                    continue;
+                };
 
-                    let object_id = object_message
-                        .field(1)
-                        .map(|field| decode_object_id_hint(&field.value))
-                        .transpose()?
-                        .flatten();
-                    let kind_hint = object_message
-                        .field(2)
-                        .and_then(|field| field.value.as_varint());
-                    let state_hint = object_message
-                        .field(3)
-                        .and_then(|field| field.value.as_varint());
+                let object_id = object_message
+                    .field(1)
+                    .map(|field| decode_object_id_hint(&field.value))
+                    .transpose()?
+                    .flatten();
+                let kind_hint = object_message
+                    .field(2)
+                    .and_then(|field| field.value.as_varint());
+                let state_hint = object_message
+                    .field(3)
+                    .and_then(|field| field.value.as_varint());
 
-                    object_references.push(IwaObjectReference {
-                        object_id,
-                        kind_hint,
-                        state_hint,
-                    });
-                }
+                object_references.push(IwaObjectReference {
+                    object_id,
+                    kind_hint,
+                    state_hint,
+                });
             }
         }
 

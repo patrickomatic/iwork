@@ -58,3 +58,12 @@ Integration tests live in `tests/harness.rs` and are fixture-driven against 9 re
 ## Format Reference
 
 `docs/file-format.md` documents the reverse-engineered ZIP, plist, IWA, and protobuf structures. Read this before modifying `package.rs`, `iwa.rs`, or `protobuf.rs`.
+
+## Reverse-Engineering Discipline
+
+When investigating binary format details, distinguish sharply between:
+
+- **Structural invariants** — byte patterns that hold regardless of document content (type bytes, sentinel values, fixed flags). These are safe to build against.
+- **Data-inferred guesses** — interpretations that only work because the example file happened to contain certain values (e.g., "this u32 looks like a dollar amount"). These are not reliable format knowledge.
+
+The example files in `examples/` contain arbitrary user data. Never use the actual cell values (prices, amounts, dates, strings) to reason about what an encoding means — those values are content, not format. A pattern that only appears to work because the example has budget data may break entirely on a different document.

@@ -15,7 +15,7 @@ impl DocumentKind {
             .as_ref()
             .extension()
             .and_then(|value| value.to_str())
-            .map(|value| value.to_ascii_lowercase())
+            .map(str::to_ascii_lowercase)
             .as_deref()
         {
             Some("numbers") => Self::Numbers,

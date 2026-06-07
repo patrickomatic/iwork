@@ -293,6 +293,44 @@ fn stylesheet_payload_bold_and_italic_are_structural() -> Result<(), Error> {
     Ok(())
 }
 
+#[test]
+fn numbers_table_parses_text_cells() -> Result<(), Error> {
+    let doc = numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?;
+    let spreadsheet = doc.spreadsheet()?;
+    let tables = spreadsheet.tables();
+
+    let text_cells: Vec<_> = tables
+        .iter()
+        .flat_map(|t| t.rows())
+        .flat_map(|r| r.cells.iter())
+        .filter_map(|c| c.as_text())
+        .collect();
+
+    assert!(!text_cells.is_empty(), "expected at least one text cell");
+    Ok(())
+}
+
+#[test]
+fn numbers_table_parses_date_cells() -> Result<(), Error> {
+    let doc = numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?;
+    let spreadsheet = doc.spreadsheet()?;
+    let tables = spreadsheet.tables();
+
+    let date_cells: Vec<_> = tables
+        .iter()
+        .flat_map(|t| t.rows())
+        .flat_map(|r| r.cells.iter())
+        .filter_map(|c| c.as_date_seconds())
+        .collect();
+
+    assert!(!date_cells.is_empty(), "expected at least one date cell");
+    assert!(
+        date_cells.iter().all(|&s| s > 0.0),
+        "date seconds should be positive (Cocoa epoch)",
+    );
+    Ok(())
+}
+
 fn unique_output_path(input_path: &str) -> PathBuf {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)

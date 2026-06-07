@@ -22,7 +22,12 @@ impl Presentation {
         let mut index_archives = package
             .entries()
             .iter()
-            .filter(|entry| entry.path.starts_with("Index/") && entry.path.ends_with(".iwa"))
+            .filter(|entry| {
+                entry.path.starts_with("Index/")
+                    && std::path::Path::new(&entry.path)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("iwa"))
+            })
             .filter(|entry| {
                 !matches!(
                     entry.path.as_str(),
