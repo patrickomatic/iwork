@@ -10,12 +10,14 @@ pub struct StylesheetCatalog {
     pub font_names: Vec<String>,
     pub style_names: Vec<String>,
     pub records: Vec<StyleRecord>,
+    pub attribute_hints: Vec<StyleAttributes>,
 }
 
 impl StylesheetCatalog {
     pub fn from_archive(archive: &IwaArchive) -> Self {
         let referenced_object_ids = archive.leading_object_references();
         let records = extract_style_records(archive);
+        let attribute_hints = extract_attribute_hints(archive);
         let strings = archive.ascii_strings(8);
 
         let mut identifiers = BTreeSet::new();
@@ -64,6 +66,7 @@ impl StylesheetCatalog {
             font_names: font_names.into_iter().collect(),
             style_names: style_names.into_iter().collect(),
             records,
+            attribute_hints,
         }
     }
 }
@@ -72,78 +75,144 @@ impl StylesheetCatalog {
 pub struct StyleRecord {
     pub name: String,
     pub object_id: Option<u64>,
+    pub attributes: StyleAttributes,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct StyleAttributes {
+    pub font_name: Option<String>,
+    pub font_size: Option<OrderedF32>,
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub underline: Option<bool>,
+    pub strikethrough: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct OrderedF32(pub f32);
+
+impl Eq for OrderedF32 {}
+
+impl PartialOrd for OrderedF32 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedF32 {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0)
+    }
 }
 
 fn extract_style_records(archive: &IwaArchive) -> Vec<StyleRecord> {
-    let mut records = BTreeSet::new();
-    let body = archive.body();
+    let body = &archive.body()[archive.leading_object_references_len()..];
+    let mut cursor = 0;
+    let mut named_records = Vec::new();
 
-    for start in 0..body.len() {
-        let Some(record) = decode_style_record_at(&body[start..]) else {
+    while cursor < body.len() {
+        let Ok(tag) = read_varint(body, &mut cursor) else {
+            break;
+        };
+        if tag & 0x07 != 2 {
+            break;
+        }
+
+        let Ok(len_varint) = read_varint(body, &mut cursor) else {
+            break;
+        };
+        let Ok(len) = usize::try_from(len_varint) else {
+            break;
+        };
+        let Some(chunk) = body.get(cursor..cursor + len) else {
+            break;
+        };
+        cursor += len;
+
+        let Some(message) = ProtoMessage::decode(chunk).ok() else {
             continue;
         };
-        records.insert(record);
+
+        let object_id = decode_message_object_id(&message);
+        let attributes = decode_style_attributes(&message);
+
+        let Some(name) = decode_message_name(&message) else {
+            continue;
+        };
+        let Some(object_id) = object_id else {
+            continue;
+        };
+        named_records.push((name, object_id, attributes));
+    }
+
+    let mut records = BTreeSet::new();
+    for (name, object_id, local_attributes) in named_records {
+        let attributes = infer_style_attributes(&name, local_attributes);
+        records.insert(StyleRecord {
+            name,
+            object_id: Some(object_id),
+            attributes,
+        });
     }
 
     records.into_iter().collect()
 }
 
-fn decode_style_record_at(bytes: &[u8]) -> Option<StyleRecord> {
-    let mut cursor = 0;
-    let tag = read_varint(bytes, &mut cursor).ok()?;
-    if tag != 10 {
-        return None;
+fn extract_attribute_hints(archive: &IwaArchive) -> Vec<StyleAttributes> {
+    let mut hints = BTreeSet::new();
+    let body = archive.body();
+
+    for start in 0..body.len() {
+        if body[start] != 0x5a {
+            continue;
+        }
+
+        let mut cursor = start + 1;
+        let Ok(len_varint) = read_varint(body, &mut cursor) else {
+            continue;
+        };
+        let Ok(len) = usize::try_from(len_varint) else {
+            continue;
+        };
+        let Some(chunk) = body.get(cursor..cursor + len) else {
+            continue;
+        };
+        let Some(message) = ProtoMessage::decode(chunk).ok() else {
+            continue;
+        };
+        let attributes = decode_payload_attributes(&message);
+        if !attributes.is_empty() {
+            hints.insert(attributes);
+        }
     }
 
-    let name_len = usize::try_from(read_varint(bytes, &mut cursor).ok()?).ok()?;
-    let name_end = cursor.checked_add(name_len)?;
-    let name = std::str::from_utf8(bytes.get(cursor..name_end)?)
-        .ok()?
+    hints.into_iter().collect()
+}
+
+fn decode_message_name(message: &ProtoMessage) -> Option<String> {
+    let name = message
+        .field(1)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())?
         .trim_matches(|ch: char| matches!(ch, '"' | '$' | ':' | ',' | ';' | '*'))
         .to_owned();
     if name.len() < 3 || !name.is_ascii() {
         return None;
     }
-    cursor = name_end;
+    Some(name)
+}
 
-    let mut object_id = None;
-    while cursor < bytes.len() {
-        let field_tag = read_varint(bytes, &mut cursor).ok()?;
-        let field_number = field_tag >> 3;
-        let wire_type = field_tag & 0x07;
-        match (field_number, wire_type) {
-            (2 | 5, 2) => {
-                let len = usize::try_from(read_varint(bytes, &mut cursor).ok()?).ok()?;
-                let end = cursor.checked_add(len)?;
-                let value = bytes.get(cursor..end)?;
-                object_id = decode_object_reference_bytes(value);
-                if object_id.is_some() {
-                    break;
-                }
-                cursor = end;
-            }
-            (_, 0) => {
-                read_varint(bytes, &mut cursor).ok()?;
-            }
-            (_, 1) => {
-                cursor = cursor.checked_add(8)?;
-            }
-            (_, 2) => {
-                let len = usize::try_from(read_varint(bytes, &mut cursor).ok()?).ok()?;
-                cursor = cursor.checked_add(len)?;
-            }
-            (_, 5) => {
-                cursor = cursor.checked_add(4)?;
-            }
-            _ => return None,
-        }
-    }
-
-    if object_id.is_none() {
-        return None;
-    }
-
-    Some(StyleRecord { name, object_id })
+fn decode_message_object_id(message: &ProtoMessage) -> Option<u64> {
+    message
+        .field(2)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(decode_object_reference_bytes)
+        .or_else(|| {
+            message
+                .field(5)
+                .and_then(|field| field.value.as_bytes())
+                .and_then(decode_object_reference_bytes)
+        })
 }
 
 fn decode_object_reference_bytes(bytes: &[u8]) -> Option<u64> {
@@ -162,6 +231,75 @@ fn decode_object_reference_bytes(bytes: &[u8]) -> Option<u64> {
 fn decode_nested_object_reference(bytes: &[u8]) -> Option<u64> {
     let message = ProtoMessage::decode(bytes).ok()?;
     message.field(1).and_then(|field| field.value.as_varint())
+}
+
+fn decode_style_attributes(message: &ProtoMessage) -> StyleAttributes {
+    let payload = message
+        .field(11)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(|bytes| ProtoMessage::decode(bytes).ok());
+
+    payload
+        .as_ref()
+        .map_or_else(StyleAttributes::default, decode_payload_attributes)
+}
+
+fn decode_payload_attributes(payload: &ProtoMessage) -> StyleAttributes {
+    let font_name = payload
+        .field(5)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .map(ToOwned::to_owned);
+    let font_size = payload.field(3).and_then(|field| match field.value {
+        crate::ProtoValue::Fixed32(bits) => Some(OrderedF32(f32::from_bits(bits))),
+        _ => None,
+    });
+
+    StyleAttributes {
+        font_name,
+        font_size,
+        bold: None,
+        italic: None,
+        underline: None,
+        strikethrough: None,
+    }
+}
+
+fn infer_style_attributes(name: &str, mut attributes: StyleAttributes) -> StyleAttributes {
+    let lowercase_name = name.to_ascii_lowercase();
+    let lowercase_font = attributes
+        .font_name
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if attributes.bold.is_none()
+        && (lowercase_name.contains("bold") || lowercase_font.contains("bold"))
+    {
+        attributes.bold = Some(true);
+    }
+    if attributes.italic.is_none() && lowercase_name.contains("italic") {
+        attributes.italic = Some(true);
+    }
+    if attributes.underline.is_none() && lowercase_name.contains("underline") {
+        attributes.underline = Some(true);
+    }
+    if attributes.strikethrough.is_none() && lowercase_name.contains("strikethrough") {
+        attributes.strikethrough = Some(true);
+    }
+
+    attributes
+}
+
+impl StyleAttributes {
+    fn is_empty(&self) -> bool {
+        self.font_name.is_none()
+            && self.font_size.is_none()
+            && self.bold.is_none()
+            && self.italic.is_none()
+            && self.underline.is_none()
+            && self.strikethrough.is_none()
+    }
 }
 
 fn looks_like_identifier(value: &str) -> bool {

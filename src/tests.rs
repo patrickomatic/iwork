@@ -213,6 +213,19 @@ fn numbers_spreadsheet_exposes_core_archives() -> Result<(), Error> {
             .iter()
             .any(|record| record.name.contains("character-style-hyperlink"))
     );
+    assert!(catalog.attribute_hints.iter().any(|hint| {
+        hint.font_name
+            .as_deref()
+            .is_some_and(|font| font.contains("HelveticaNeue"))
+    }));
+    assert!(catalog.attribute_hints.iter().any(|hint| {
+        hint.font_size.is_some_and(|size| {
+            (size.0 - 10.0).abs() < f32::EPSILON
+                || (size.0 - 12.0).abs() < f32::EPSILON
+                || (size.0 - 14.0).abs() < f32::EPSILON
+                || (size.0 - 16.0).abs() < f32::EPSILON
+        })
+    }));
 
     Ok(())
 }
