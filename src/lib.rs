@@ -11,6 +11,7 @@ const LOCAL_FILE_SIGNATURE: u32 = 0x0403_4B50;
 pub enum Error {
     Io(std::io::Error),
     NotAZipArchive,
+    UnsupportedDocumentType(String),
     MissingEndOfCentralDirectory,
     InvalidCentralDirectory,
     InvalidLocalFileHeader,
@@ -26,6 +27,9 @@ impl fmt::Display for Error {
         match self {
             Self::Io(error) => write!(f, "I/O error: {error}"),
             Self::NotAZipArchive => write!(f, "file does not look like a zip archive"),
+            Self::UnsupportedDocumentType(path) => {
+                write!(f, "unsupported iWork document type: {path}")
+            }
             Self::MissingEndOfCentralDirectory => {
                 write!(f, "could not find end-of-central-directory record")
             }
@@ -87,10 +91,46 @@ pub struct PropertiesPlist {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InspectionReport {
     pub path: String,
+    pub kind: DocumentKind,
     pub properties: PropertiesPlist,
     pub entry_count: usize,
     pub iwa_count: usize,
     pub style_keyword_hits: BTreeMap<String, usize>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DocumentKind {
+    Numbers,
+    Pages,
+    Keynote,
+    #[default]
+    Unknown,
+}
+
+impl DocumentKind {
+    pub fn from_path(path: impl AsRef<Path>) -> Self {
+        match path
+            .as_ref()
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("numbers") => Self::Numbers,
+            Some("pages") => Self::Pages,
+            Some("key") => Self::Keynote,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Numbers => "numbers",
+            Self::Pages => "pages",
+            Self::Keynote => "keynote",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -231,13 +271,15 @@ impl Package {
     pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
         let properties = self.properties()?;
         let stylesheet = self.entry_bytes("Index/DocumentStylesheet.iwa")?;
+        let path = path.into();
         let style_keyword_hits = count_keywords(
             stylesheet,
             &["bold", "italic", "underline", "strikethrough", "font"],
         );
 
         Ok(InspectionReport {
-            path: path.into(),
+            kind: DocumentKind::from_path(&path),
+            path,
             properties,
             entry_count: self.entries.len(),
             iwa_count: self
@@ -257,7 +299,7 @@ impl Package {
 pub mod pages {
     use std::path::Path;
 
-    use crate::{Error, Package};
+    use crate::{DocumentKind, Error, InspectionReport, Package};
 
     #[derive(Debug, Clone)]
     pub struct Document {
@@ -266,6 +308,11 @@ pub mod pages {
 
     impl Document {
         pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+            if DocumentKind::from_path(path.as_ref()) != DocumentKind::Pages {
+                return Err(Error::UnsupportedDocumentType(
+                    path.as_ref().display().to_string(),
+                ));
+            }
             Ok(Self {
                 package: Package::open(path)?,
             })
@@ -279,6 +326,10 @@ pub mod pages {
 
         pub fn package(&self) -> &Package {
             &self.package
+        }
+
+        pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
+            self.package.inspect(path)
         }
     }
 }
@@ -286,7 +337,7 @@ pub mod pages {
 pub mod keynote {
     use std::path::Path;
 
-    use crate::{Error, Package};
+    use crate::{DocumentKind, Error, InspectionReport, Package};
 
     #[derive(Debug, Clone)]
     pub struct Document {
@@ -295,6 +346,11 @@ pub mod keynote {
 
     impl Document {
         pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+            if DocumentKind::from_path(path.as_ref()) != DocumentKind::Keynote {
+                return Err(Error::UnsupportedDocumentType(
+                    path.as_ref().display().to_string(),
+                ));
+            }
             Ok(Self {
                 package: Package::open(path)?,
             })
@@ -308,6 +364,10 @@ pub mod keynote {
 
         pub fn package(&self) -> &Package {
             &self.package
+        }
+
+        pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
+            self.package.inspect(path)
         }
     }
 }
@@ -397,8 +457,7 @@ fn parse_binary_properties_plist(bytes: &[u8]) -> Result<PropertiesPlist, Error>
     let object_ref_size = trailer[7] as usize;
     let num_objects = u64_to_usize(read_be_u64(trailer, 8)?, "number of objects")?;
     let top_object = u64_to_usize(read_be_u64(trailer, 16)?, "top object index")?;
-    let offset_table_offset =
-        u64_to_usize(read_be_u64(trailer, 24)?, "offset table start")?;
+    let offset_table_offset = u64_to_usize(read_be_u64(trailer, 24)?, "offset table start")?;
 
     if offset_int_size == 0 || object_ref_size == 0 {
         return Err(Error::InvalidPlist("invalid trailer sizes"));
@@ -617,9 +676,11 @@ fn u64_to_usize(value: u64, context: &'static str) -> Result<usize, Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Document, Error, Package, count_keywords, keynote, pages};
+    use super::{Document, DocumentKind, Error, Package, count_keywords, keynote, pages};
 
     const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
+    const MODERN_NOVEL_EXAMPLE: &str = "examples/pages/modern_novel.pages";
+    const BASIC_WHITE_EXAMPLE: &str = "examples/keynote/basic_white.key";
 
     #[test]
     fn counts_keyword_hits_case_insensitively() {
@@ -648,18 +709,31 @@ mod tests {
     #[test]
     fn app_specific_entry_points_share_the_core_package_reader() -> Result<(), Error> {
         let iwork_doc = Document::open(PERSONAL_BUDGET_EXAMPLE)?;
-        let pages_doc = pages::Document::open(PERSONAL_BUDGET_EXAMPLE)?;
-        let keynote_doc = keynote::Document::open(PERSONAL_BUDGET_EXAMPLE)?;
+        let pages_doc = pages::Document::open(MODERN_NOVEL_EXAMPLE)?;
+        let keynote_doc = keynote::Document::open(BASIC_WHITE_EXAMPLE)?;
 
         assert_eq!(
-            iwork_doc.package().entries().len(),
-            pages_doc.package().entries().len()
+            iwork_doc.inspect(PERSONAL_BUDGET_EXAMPLE)?.kind,
+            DocumentKind::Numbers
         );
         assert_eq!(
-            pages_doc.package().entries().len(),
-            keynote_doc.package().entries().len()
+            pages_doc.inspect(MODERN_NOVEL_EXAMPLE)?.kind,
+            DocumentKind::Pages
+        );
+        assert_eq!(
+            keynote_doc.inspect(BASIC_WHITE_EXAMPLE)?.kind,
+            DocumentKind::Keynote
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn app_specific_entry_points_reject_the_wrong_extension() {
+        let pages_error = pages::Document::open(PERSONAL_BUDGET_EXAMPLE).unwrap_err();
+        assert!(matches!(pages_error, Error::UnsupportedDocumentType(_)));
+
+        let keynote_error = keynote::Document::open(MODERN_NOVEL_EXAMPLE).unwrap_err();
+        assert!(matches!(keynote_error, Error::UnsupportedDocumentType(_)));
     }
 }

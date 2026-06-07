@@ -4,7 +4,7 @@ fn main() {
     let mut args = std::env::args();
     let executable = args.next().unwrap_or_else(|| "iwork".to_owned());
     let Some(path) = args.next() else {
-        eprintln!("usage: {executable} <file.numbers>");
+        eprintln!("usage: {executable} <file.numbers|file.pages|file.key>");
         std::process::exit(2);
     };
 
@@ -22,6 +22,7 @@ fn run(path: &str) -> Result<(), iwork::Error> {
     let report = document.inspect(path.to_owned())?;
 
     println!("file: {}", report.path);
+    println!("kind: {}", report.kind.as_str());
     println!("entries: {}", report.entry_count);
     println!("iwa entries: {}", report.iwa_count);
     println!(
