@@ -346,12 +346,24 @@ fn decode_payload_attributes(payload: &ProtoMessage) -> StyleAttributes {
         crate::ProtoValue::Fixed32(bits) => Some(OrderedF32(f32::from_bits(bits))),
         _ => None,
     });
+    // Field 1 = bold, field 2 = italic: only set Some(true) when the field is explicitly 1;
+    // treat 0 and absent the same (may be an inherited default rather than an explicit override).
+    let bold = payload
+        .field(1)
+        .and_then(|f| f.value.as_varint())
+        .filter(|&v| v != 0)
+        .map(|_| true);
+    let italic = payload
+        .field(2)
+        .and_then(|f| f.value.as_varint())
+        .filter(|&v| v != 0)
+        .map(|_| true);
 
     StyleAttributes {
         font_name,
         font_size,
-        bold: None,
-        italic: None,
+        bold,
+        italic,
         underline: None,
         strikethrough: None,
     }
