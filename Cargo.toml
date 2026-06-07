@@ -1,0 +1,9 @@
+[package]
+name = "iwork"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+readme = "README.md"
+description = "Rust tooling for reading and writing Apple Numbers files"
+
+[dependencies]
