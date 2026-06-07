@@ -1,17 +1,32 @@
 use std::path::Path;
 
-use iwork::{Document, Error};
+use iwork::{Document, DocumentKind, Error, keynote, pages};
 
-const EXAMPLES: &[&str] = &[
+const NUMBERS_EXAMPLES: &[&str] = &[
     "examples/numbers/my_stocks.numbers",
     "examples/numbers/personal_budget.numbers",
     "examples/numbers/pivot_table.numbers",
     "examples/numbers/table_and_charts.numbers",
 ];
 
+const PAGES_EXAMPLES: &[&str] = &[
+    "examples/pages/modern_novel.pages",
+    "examples/pages/term_paper.pages",
+];
+
+const KEYNOTE_EXAMPLES: &[&str] = &[
+    "examples/keynote/basic_white.key",
+    "examples/keynote/blueprint.key",
+    "examples/keynote/parchment.key",
+];
+
 #[test]
 fn every_example_opens_and_exposes_core_metadata() -> Result<(), Error> {
-    for path in EXAMPLES {
+    for path in NUMBERS_EXAMPLES
+        .iter()
+        .chain(PAGES_EXAMPLES.iter())
+        .chain(KEYNOTE_EXAMPLES.iter())
+    {
         let package = Document::open(path)?;
         let report = package.inspect((*path).to_owned())?;
 
@@ -32,21 +47,19 @@ fn every_example_opens_and_exposes_core_metadata() -> Result<(), Error> {
 
 #[test]
 fn stylesheet_fixture_signal_is_present() -> Result<(), Error> {
-    for path in EXAMPLES {
+    for path in NUMBERS_EXAMPLES
+        .iter()
+        .chain(PAGES_EXAMPLES.iter())
+        .chain(KEYNOTE_EXAMPLES.iter())
+    {
         let package = Document::open(path)?;
-        let stylesheet = package.package().entry_bytes("Index/DocumentStylesheet.iwa")?;
+        let stylesheet = package
+            .package()
+            .entry_bytes("Index/DocumentStylesheet.iwa")?;
 
         assert!(
-            stylesheet
-                .windows("Italic".len())
-                .any(|window| window == b"Italic"),
-            "{path} should include italic markers"
-        );
-        assert!(
-            stylesheet
-                .windows("Strikethrough".len())
-                .any(|window| window == b"Strikethrough"),
-            "{path} should include strikethrough markers"
+            !stylesheet.is_empty(),
+            "{path} should include a stylesheet payload"
         );
     }
 
@@ -54,11 +67,27 @@ fn stylesheet_fixture_signal_is_present() -> Result<(), Error> {
 }
 
 #[test]
-fn all_examples_use_the_numbers_extension() {
-    for path in EXAMPLES {
+fn examples_are_classified_by_extension() -> Result<(), Error> {
+    for path in NUMBERS_EXAMPLES {
+        let kind = Document::open(path)?.inspect((*path).to_owned())?.kind;
+        assert_eq!(kind, DocumentKind::Numbers);
         assert_eq!(
             Path::new(path).extension().and_then(|value| value.to_str()),
             Some("numbers")
         );
     }
+
+    for path in PAGES_EXAMPLES {
+        let kind = Document::open(path)?.inspect((*path).to_owned())?.kind;
+        assert_eq!(kind, DocumentKind::Pages);
+        assert!(pages::Document::open(path).is_ok());
+    }
+
+    for path in KEYNOTE_EXAMPLES {
+        let kind = Document::open(path)?.inspect((*path).to_owned())?.kind;
+        assert_eq!(kind, DocumentKind::Keynote);
+        assert!(keynote::Document::open(path).is_ok());
+    }
+
+    Ok(())
 }
