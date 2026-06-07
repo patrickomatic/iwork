@@ -186,6 +186,27 @@ fn numbers_spreadsheet_exposes_core_archives() -> Result<(), Error> {
             .any(|archive| archive.path().ends_with("Tile.iwa"))
     );
 
+    let catalog = spreadsheet.stylesheet_catalog();
+    assert!(catalog.referenced_object_ids.len() > 20);
+    assert!(
+        catalog
+            .identifiers
+            .iter()
+            .any(|identifier| identifier.contains("character-style-hyperlink"))
+    );
+    assert!(
+        catalog
+            .font_names
+            .iter()
+            .any(|font| font.contains("HelveticaNeue-Bold"))
+    );
+    assert!(
+        catalog
+            .style_names
+            .iter()
+            .any(|name| name == "Bold" || name == "Italic")
+    );
+
     Ok(())
 }
 

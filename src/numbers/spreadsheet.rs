@@ -1,6 +1,8 @@
 use crate::iwa::IwaArchive;
 use crate::{Error, Package};
 
+use super::StylesheetCatalog;
+
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 const DOCUMENT_METADATA_ENTRY: &str = "Index/DocumentMetadata.iwa";
 const METADATA_ENTRY: &str = "Index/Metadata.iwa";
@@ -59,6 +61,10 @@ impl Spreadsheet {
 
     pub fn stylesheet(&self) -> &IwaArchive {
         &self.stylesheet
+    }
+
+    pub fn stylesheet_catalog(&self) -> StylesheetCatalog {
+        StylesheetCatalog::from_archive(&self.stylesheet)
     }
 
     pub fn table_archives(&self) -> &[TableArchive] {
