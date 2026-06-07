@@ -131,6 +131,53 @@ impl IwaArchive {
         references
     }
 
+    pub fn leading_object_references_len(&self) -> usize {
+        let mut cursor = 0;
+
+        while cursor < self.body.len() {
+            let entry_start = cursor;
+            let Ok(tag) = read_varint(&self.body, &mut cursor) else {
+                break;
+            };
+            let field_number = tag >> 3;
+            let wire_type = tag & 0x07;
+            if field_number != 1 || wire_type != 2 {
+                return entry_start;
+            }
+
+            let Ok(len_varint) = read_varint(&self.body, &mut cursor) else {
+                return entry_start;
+            };
+            let Ok(len) = usize::try_from(len_varint) else {
+                return entry_start;
+            };
+            let field_end = match cursor.checked_add(len) {
+                Some(end) => end,
+                None => return entry_start,
+            };
+            let Some(value) = self.body.get(cursor..field_end) else {
+                return entry_start;
+            };
+            cursor = field_end;
+
+            let mut value_cursor = 0;
+            let Ok(inner_tag) = read_varint(value, &mut value_cursor) else {
+                return entry_start;
+            };
+            if inner_tag != 8 {
+                return entry_start;
+            }
+            let Ok(_) = read_varint(value, &mut value_cursor) else {
+                return entry_start;
+            };
+            if value_cursor != value.len() {
+                return entry_start;
+            }
+        }
+
+        cursor
+    }
+
     pub fn ascii_strings(&self, min_len: usize) -> Vec<String> {
         let mut strings = Vec::new();
         let mut current = Vec::new();
