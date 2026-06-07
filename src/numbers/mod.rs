@@ -3,8 +3,10 @@ use std::path::Path;
 use crate::{DocumentKind, Error, InspectionReport, Package};
 
 mod spreadsheet;
+mod styles;
 
 pub use spreadsheet::{Spreadsheet, TableArchive};
+pub use styles::StylesheetCatalog;
 
 #[derive(Debug, Clone)]
 pub struct Document {

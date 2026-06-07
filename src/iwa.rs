@@ -81,6 +81,78 @@ impl IwaArchive {
     pub fn body(&self) -> &[u8] {
         &self.body
     }
+
+    pub fn leading_object_references(&self) -> Vec<u64> {
+        let mut references = Vec::new();
+        let mut cursor = 0;
+
+        while cursor < self.body.len() {
+            let Ok(tag) = read_varint(&self.body, &mut cursor) else {
+                break;
+            };
+            let field_number = tag >> 3;
+            let wire_type = tag & 0x07;
+            if field_number != 1 || wire_type != 2 {
+                break;
+            }
+
+            let Ok(len_varint) = read_varint(&self.body, &mut cursor) else {
+                break;
+            };
+            let Ok(len) = usize::try_from(len_varint) else {
+                break;
+            };
+            let field_end = match cursor.checked_add(len) {
+                Some(end) => end,
+                None => break,
+            };
+            let Some(value) = self.body.get(cursor..field_end) else {
+                break;
+            };
+            cursor = field_end;
+
+            let mut value_cursor = 0;
+            let Ok(inner_tag) = read_varint(value, &mut value_cursor) else {
+                break;
+            };
+            if inner_tag != 8 {
+                break;
+            }
+            let Ok(object_id) = read_varint(value, &mut value_cursor) else {
+                break;
+            };
+            if value_cursor != value.len() {
+                break;
+            }
+
+            references.push(object_id);
+        }
+
+        references
+    }
+
+    pub fn ascii_strings(&self, min_len: usize) -> Vec<String> {
+        let mut strings = Vec::new();
+        let mut current = Vec::new();
+
+        for byte in &self.body {
+            if byte.is_ascii_graphic() || *byte == b' ' {
+                current.push(*byte);
+                continue;
+            }
+
+            if current.len() >= min_len {
+                strings.push(String::from_utf8_lossy(&current).into_owned());
+            }
+            current.clear();
+        }
+
+        if current.len() >= min_len {
+            strings.push(String::from_utf8_lossy(&current).into_owned());
+        }
+
+        strings
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
