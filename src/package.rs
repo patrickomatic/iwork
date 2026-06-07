@@ -1,3 +1,21 @@
+//! ZIP-level package reader for iWork documents.
+//!
+//! The crate currently treats `.numbers`, `.pages`, and `.key` files as ZIP
+//! archives and performs just enough parsing to:
+//!
+//! - enumerate central-directory entries
+//! - look up raw bytes for selected package members
+//! - read `Metadata/Properties.plist`
+//! - inspect `Index/DocumentStylesheet.iwa`
+//!
+//! Important constraints:
+//!
+//! - only standard EOCD / central-directory / local-file-header records are
+//!   supported
+//! - entry names are expected to be UTF-8
+//! - `entry_bytes` only supports stored entries with compression method `0`
+//! - write support is byte-preserving rather than reconstructing the archive
+
 use std::fs;
 use std::path::Path;
 
@@ -11,9 +29,13 @@ const LOCAL_FILE_SIGNATURE: u32 = 0x0403_4B50;
 
 #[derive(Debug, Clone)]
 pub struct Entry {
+    /// Package-relative path exactly as stored in the ZIP central directory.
     pub path: String,
+    /// ZIP compression method from the central directory record.
     pub compression_method: u16,
+    /// Compressed size recorded for the entry.
     pub compressed_size: u32,
+    /// Uncompressed size recorded for the entry.
     pub uncompressed_size: u32,
     local_header_offset: u32,
 }
@@ -25,11 +47,16 @@ pub struct Package {
 }
 
 impl Package {
+    /// Reads an iWork package from disk.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
         let bytes = fs::read(path)?;
         Self::from_bytes(bytes)
     }
 
+    /// Parses an iWork package from raw bytes.
+    ///
+    /// This validates the outer ZIP structure and records the central
+    /// directory metadata needed for later entry access.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error> {
         if bytes.len() < 4 || read_u32(&bytes, 0)? != LOCAL_FILE_SIGNATURE {
             return Err(Error::NotAZipArchive);
@@ -88,19 +115,26 @@ impl Package {
         Ok(Self { bytes, entries })
     }
 
+    /// Returns the central-directory entries discovered in the package.
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
 
+    /// Consumes the package and returns the original archive bytes.
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 
+    /// Writes the original archive bytes back out unchanged.
     pub fn write(&self, path: impl AsRef<Path>) -> Result<(), Error> {
         fs::write(path, &self.bytes)?;
         Ok(())
     }
 
+    /// Returns the raw bytes for a package entry.
+    ///
+    /// This reader currently supports only stored ZIP members
+    /// (`compression_method == 0`).
     pub fn entry_bytes(&self, path: &str) -> Result<&[u8], Error> {
         let entry = self
             .entries
@@ -136,11 +170,17 @@ impl Package {
             .ok_or(Error::Truncated("file contents"))
     }
 
+    /// Reads and parses `Metadata/Properties.plist`.
     pub fn properties(&self) -> Result<PropertiesPlist, Error> {
         let bytes = self.entry_bytes("Metadata/Properties.plist")?;
         parse_properties_plist(bytes)
     }
 
+    /// Produces a small report based on package members we currently
+    /// understand.
+    ///
+    /// The report uses filename extension for app classification and treats
+    /// `Index/DocumentStylesheet.iwa` as opaque bytes for keyword scanning.
     pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
         let properties = self.properties()?;
         let stylesheet = self.entry_bytes("Index/DocumentStylesheet.iwa")?;
@@ -169,6 +209,8 @@ impl Package {
     }
 }
 
+/// Finds the ZIP end-of-central-directory record by scanning backward from the
+/// end of the archive, allowing for an optional trailing comment.
 fn find_eocd(bytes: &[u8]) -> Option<usize> {
     let start = bytes.len().saturating_sub(22 + 65_535);
     (start..=bytes.len().saturating_sub(4))
