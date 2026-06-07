@@ -243,7 +243,11 @@ impl Package {
             iwa_count: self
                 .entries
                 .iter()
-                .filter(|entry| entry.path.ends_with(".iwa"))
+                .filter(|entry| {
+                    Path::new(&entry.path)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("iwa"))
+                })
                 .count(),
             style_keyword_hits,
         })
@@ -391,9 +395,10 @@ fn parse_binary_properties_plist(bytes: &[u8]) -> Result<PropertiesPlist, Error>
     let trailer = &bytes[bytes.len() - 32..];
     let offset_int_size = trailer[6] as usize;
     let object_ref_size = trailer[7] as usize;
-    let num_objects = read_be_u64(trailer, 8)? as usize;
-    let top_object = read_be_u64(trailer, 16)? as usize;
-    let offset_table_offset = read_be_u64(trailer, 24)? as usize;
+    let num_objects = u64_to_usize(read_be_u64(trailer, 8)?, "number of objects")?;
+    let top_object = u64_to_usize(read_be_u64(trailer, 16)?, "top object index")?;
+    let offset_table_offset =
+        u64_to_usize(read_be_u64(trailer, 24)?, "offset table start")?;
 
     if offset_int_size == 0 || object_ref_size == 0 {
         return Err(Error::InvalidPlist("invalid trailer sizes"));
@@ -416,9 +421,8 @@ fn parse_binary_properties_plist(bytes: &[u8]) -> Result<PropertiesPlist, Error>
     }
 
     let object = parse_binary_plist_object(bytes, &offsets, object_ref_size, top_object)?;
-    let dict = match object {
-        BinaryPlistObject::Dict(dict) => dict,
-        _ => return Err(Error::InvalidPlist("top object is not a dictionary")),
+    let BinaryPlistObject::Dict(dict) = object else {
+        return Err(Error::InvalidPlist("top object is not a dictionary"));
     };
 
     Ok(PropertiesPlist {
@@ -522,9 +526,8 @@ fn parse_binary_plist_object(
                 )?;
                 let key_object =
                     parse_binary_plist_object(bytes, offsets, object_ref_size, key_ref)?;
-                let key = match key_object {
-                    BinaryPlistObject::String(value) => value,
-                    _ => return Err(Error::InvalidPlist("dictionary key is not a string")),
+                let BinaryPlistObject::String(key) = key_object else {
+                    return Err(Error::InvalidPlist("dictionary key is not a string"));
                 };
                 let value = parse_binary_plist_object(bytes, offsets, object_ref_size, value_ref)?;
                 dict.insert(key, value);
@@ -554,7 +557,10 @@ fn parse_plist_length(
 
     let int_power = (int_marker & 0x0F) as usize;
     let int_len = 1usize
-        .checked_shl(int_power as u32)
+        .checked_shl(
+            u32::try_from(int_power)
+                .map_err(|_| Error::InvalidPlist("length integer is too large"))?,
+        )
         .ok_or(Error::InvalidPlist("length integer is too large"))?;
     let len_start = offset + 2;
     let len = read_be_usize(bytes, len_start, int_len)?;
@@ -605,9 +611,15 @@ fn read_be_u64(bytes: &[u8], offset: usize) -> Result<u64, Error> {
     ]))
 }
 
+fn u64_to_usize(value: u64, context: &'static str) -> Result<usize, Error> {
+    usize::try_from(value).map_err(|_| Error::InvalidPlist(context))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Document, Package, count_keywords, keynote, pages};
+    use super::{Document, Error, Package, count_keywords, keynote, pages};
+
+    const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
 
     #[test]
     fn counts_keyword_hits_case_insensitively() {
@@ -617,9 +629,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_a_fixture_archive() {
-        let package = Package::open("examples/personal_budget.numbers").unwrap();
-        let properties = package.properties().unwrap();
+    fn parses_a_fixture_archive() -> Result<(), Error> {
+        let package = Package::open(PERSONAL_BUDGET_EXAMPLE)?;
+        let properties = package.properties()?;
 
         assert_eq!(properties.file_format_version.as_deref(), Some("14.4.1"));
         assert_eq!(properties.is_multi_page, Some(true));
@@ -629,13 +641,15 @@ mod tests {
                 .iter()
                 .any(|entry| entry.path == "Index/DocumentStylesheet.iwa")
         );
+
+        Ok(())
     }
 
     #[test]
-    fn app_specific_entry_points_share_the_core_package_reader() {
-        let iwork_doc = Document::open("examples/personal_budget.numbers").unwrap();
-        let pages_doc = pages::Document::open("examples/personal_budget.numbers").unwrap();
-        let keynote_doc = keynote::Document::open("examples/personal_budget.numbers").unwrap();
+    fn app_specific_entry_points_share_the_core_package_reader() -> Result<(), Error> {
+        let iwork_doc = Document::open(PERSONAL_BUDGET_EXAMPLE)?;
+        let pages_doc = pages::Document::open(PERSONAL_BUDGET_EXAMPLE)?;
+        let keynote_doc = keynote::Document::open(PERSONAL_BUDGET_EXAMPLE)?;
 
         assert_eq!(
             iwork_doc.package().entries().len(),
@@ -645,5 +659,7 @@ mod tests {
             pages_doc.package().entries().len(),
             keynote_doc.package().entries().len()
         );
+
+        Ok(())
     }
 }

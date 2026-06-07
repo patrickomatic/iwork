@@ -1,23 +1,19 @@
 use std::path::Path;
 
-use iwork::Document;
+use iwork::{Document, Error};
 
 const EXAMPLES: &[&str] = &[
-    "examples/my_stocks.numbers",
-    "examples/personal_budget.numbers",
-    "examples/pivot_table.numbers",
-    "examples/table_and_charts.numbers",
+    "examples/numbers/my_stocks.numbers",
+    "examples/numbers/personal_budget.numbers",
+    "examples/numbers/pivot_table.numbers",
+    "examples/numbers/table_and_charts.numbers",
 ];
 
 #[test]
-fn every_example_opens_and_exposes_core_metadata() {
+fn every_example_opens_and_exposes_core_metadata() -> Result<(), Error> {
     for path in EXAMPLES {
-        let package = Document::open(path).unwrap_or_else(|error| {
-            panic!("failed to open {path}: {error}");
-        });
-        let report = package.inspect((*path).to_owned()).unwrap_or_else(|error| {
-            panic!("failed to inspect {path}: {error}");
-        });
+        let package = Document::open(path)?;
+        let report = package.inspect((*path).to_owned())?;
 
         assert!(report.entry_count > 0, "{path} should not be empty");
         assert!(report.iwa_count > 0, "{path} should contain iwa payloads");
@@ -30,16 +26,15 @@ fn every_example_opens_and_exposes_core_metadata() {
             "{path} should expose a file format version"
         );
     }
+
+    Ok(())
 }
 
 #[test]
-fn stylesheet_fixture_signal_is_present() {
+fn stylesheet_fixture_signal_is_present() -> Result<(), Error> {
     for path in EXAMPLES {
-        let package = Document::open(path).unwrap();
-        let stylesheet = package
-            .package()
-            .entry_bytes("Index/DocumentStylesheet.iwa")
-            .unwrap();
+        let package = Document::open(path)?;
+        let stylesheet = package.package().entry_bytes("Index/DocumentStylesheet.iwa")?;
 
         assert!(
             stylesheet
@@ -54,6 +49,8 @@ fn stylesheet_fixture_signal_is_present() {
             "{path} should include strikethrough markers"
         );
     }
+
+    Ok(())
 }
 
 #[test]

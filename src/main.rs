@@ -3,12 +3,9 @@ use iwork::Document;
 fn main() {
     let mut args = std::env::args();
     let executable = args.next().unwrap_or_else(|| "iwork".to_owned());
-    let path = match args.next() {
-        Some(path) => path,
-        None => {
-            eprintln!("usage: {executable} <file.numbers>");
-            std::process::exit(2);
-        }
+    let Some(path) = args.next() else {
+        eprintln!("usage: {executable} <file.numbers>");
+        std::process::exit(2);
     };
 
     match run(&path) {
