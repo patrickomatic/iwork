@@ -266,6 +266,33 @@ fn keynote_presentation_exposes_core_archives() -> Result<(), Error> {
     Ok(())
 }
 
+#[test]
+fn stylesheet_payload_bold_and_italic_are_structural() -> Result<(), Error> {
+    // term_paper.pages has Charter-Bold and Charter-Italic styles which carry field 1/2
+    // explicitly in the payload — verify they surface as structural attributes, not heuristics.
+    let package = Package::open("examples/pages/term_paper.pages")?;
+    let bytes = package.entry_bytes("Index/DocumentStylesheet.iwa")?;
+    let archive = IwaArchive::decode(bytes)?;
+    let catalog = crate::stylesheet::StylesheetCatalog::from_archive(&archive);
+
+    // At least some records should have bold=Some(true) from the payload (field 1 = 1),
+    // not solely from name inference.
+    let has_structural_bold = catalog
+        .attribute_hints
+        .iter()
+        .any(|hint| hint.bold == Some(true));
+    assert!(has_structural_bold, "expected at least one payload with field 1 = 1 (bold)");
+
+    // At least some records should have italic=Some(true) from the payload (field 2 = 1).
+    let has_structural_italic = catalog
+        .attribute_hints
+        .iter()
+        .any(|hint| hint.italic == Some(true));
+    assert!(has_structural_italic, "expected at least one payload with field 2 = 1 (italic)");
+
+    Ok(())
+}
+
 fn unique_output_path(input_path: &str) -> PathBuf {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
