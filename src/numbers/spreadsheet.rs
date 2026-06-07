@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use crate::iwa::IwaArchive;
 use crate::{Error, Package, StylesheetCatalog};
+use super::table::{Table, decode_string_datalist};
 
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 const DOCUMENT_METADATA_ENTRY: &str = "Index/DocumentMetadata.iwa";
@@ -67,6 +70,21 @@ impl Spreadsheet {
 
     pub fn table_archives(&self) -> &[TableArchive] {
         &self.table_archives
+    }
+
+    pub fn tables(&self) -> Vec<Table> {
+        let strings: HashMap<u32, String> = self
+            .table_archives
+            .iter()
+            .filter(|a| a.path.contains("DataList"))
+            .flat_map(|a| decode_string_datalist(&a.archive))
+            .collect();
+
+        self.table_archives
+            .iter()
+            .filter(|a| a.path.contains("Tile"))
+            .map(|a| Table::from_tile(&a.archive, &strings))
+            .collect()
     }
 }
 

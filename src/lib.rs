@@ -33,7 +33,7 @@ pub use kind::DocumentKind;
 pub use package::{Entry, Package};
 pub use plist::PropertiesPlist;
 pub use protobuf::{ProtoField, ProtoMessage, ProtoValue};
-pub use stylesheet::StylesheetCatalog;
+pub use stylesheet::{OrderedF32, StyleAttributes, StyleRecord, StylesheetCatalog};
 
 #[derive(Debug, Clone)]
 pub struct Document {
