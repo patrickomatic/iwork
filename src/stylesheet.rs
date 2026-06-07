@@ -106,16 +106,20 @@ impl Ord for OrderedF32 {
 }
 
 fn extract_style_records(archive: &IwaArchive) -> Vec<StyleRecord> {
-    let body = &archive.body()[archive.leading_object_references_len()..];
-    let mut cursor = 0;
-    let mut named_records = Vec::new();
+    let mut records = BTreeSet::new();
+    let body = archive.body();
+    let mut cursor = archive.leading_object_references_len();
 
     while cursor < body.len() {
         let Ok(tag) = read_varint(body, &mut cursor) else {
             break;
         };
-        if tag & 0x07 != 2 {
-            break;
+        let wire_type = tag & 0x07;
+        if wire_type != 2 {
+            if skip_wire_value(body, &mut cursor, wire_type).is_err() {
+                break;
+            }
+            continue;
         }
 
         let Ok(len_varint) = read_varint(body, &mut cursor) else {
@@ -132,26 +136,20 @@ fn extract_style_records(archive: &IwaArchive) -> Vec<StyleRecord> {
         let Some(message) = ProtoMessage::decode(chunk).ok() else {
             continue;
         };
-
-        let object_id = decode_message_object_id(&message);
-        let attributes = decode_style_attributes(&message);
-
         let Some(name) = decode_message_name(&message) else {
             continue;
         };
-        let Some(object_id) = object_id else {
+        let Some(object_id) = decode_message_object_id(&message) else {
             continue;
         };
-        named_records.push((name, object_id, attributes));
-    }
 
-    let mut records = BTreeSet::new();
-    for (name, object_id, local_attributes) in named_records {
-        let attributes = infer_style_attributes(&name, local_attributes);
         records.insert(StyleRecord {
+            attributes: infer_style_attributes(
+                &name,
+                enrich_style_attributes(body, object_id, decode_style_attributes(&message)),
+            ),
             name,
             object_id: Some(object_id),
-            attributes,
         });
     }
 
@@ -187,6 +185,37 @@ fn extract_attribute_hints(archive: &IwaArchive) -> Vec<StyleAttributes> {
     }
 
     hints.into_iter().collect()
+}
+
+fn skip_wire_value(bytes: &[u8], cursor: &mut usize, wire_type: u64) -> Result<(), ()> {
+    match wire_type {
+        0 => {
+            read_varint(bytes, cursor).map_err(|_| ())?;
+        }
+        1 => {
+            *cursor = cursor.checked_add(8).ok_or(())?;
+            if *cursor > bytes.len() {
+                return Err(());
+            }
+        }
+        2 => {
+            let len =
+                usize::try_from(read_varint(bytes, cursor).map_err(|_| ())?).map_err(|_| ())?;
+            *cursor = cursor.checked_add(len).ok_or(())?;
+            if *cursor > bytes.len() {
+                return Err(());
+            }
+        }
+        5 => {
+            *cursor = cursor.checked_add(4).ok_or(())?;
+            if *cursor > bytes.len() {
+                return Err(());
+            }
+        }
+        _ => return Err(()),
+    }
+
+    Ok(())
 }
 
 fn decode_message_name(message: &ProtoMessage) -> Option<String> {
@@ -231,6 +260,69 @@ fn decode_object_reference_bytes(bytes: &[u8]) -> Option<u64> {
 fn decode_nested_object_reference(bytes: &[u8]) -> Option<u64> {
     let message = ProtoMessage::decode(bytes).ok()?;
     message.field(1).and_then(|field| field.value.as_varint())
+}
+
+fn enrich_style_attributes(
+    body: &[u8],
+    object_id: u64,
+    mut attributes: StyleAttributes,
+) -> StyleAttributes {
+    if !attributes.is_empty() {
+        return attributes;
+    }
+
+    let needle = {
+        let mut bytes = vec![0x08];
+        let mut value = object_id;
+        loop {
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value == 0 {
+                bytes.push(byte);
+                break;
+            }
+            bytes.push(byte | 0x80);
+        }
+        bytes
+    };
+
+    let mut search_start = 0;
+    while let Some(found) = body[search_start..]
+        .windows(needle.len())
+        .position(|window| window == needle.as_slice())
+    {
+        let offset = search_start + found;
+        let window_end = offset.saturating_add(1_000).min(body.len());
+        let window = &body[offset..window_end];
+
+        for local in 0..window.len() {
+            if window[local] != 0x5a {
+                continue;
+            }
+            let mut cursor = local + 1;
+            let Ok(len_varint) = read_varint(window, &mut cursor) else {
+                continue;
+            };
+            let Ok(len) = usize::try_from(len_varint) else {
+                continue;
+            };
+            let Some(chunk) = window.get(cursor..cursor + len) else {
+                continue;
+            };
+            let Some(message) = ProtoMessage::decode(chunk).ok() else {
+                continue;
+            };
+            let candidate = decode_payload_attributes(&message);
+            if !candidate.is_empty() {
+                attributes = candidate;
+                return attributes;
+            }
+        }
+
+        search_start = offset + 1;
+    }
+
+    attributes
 }
 
 fn decode_style_attributes(message: &ProtoMessage) -> StyleAttributes {
