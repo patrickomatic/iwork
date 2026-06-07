@@ -188,6 +188,7 @@ fn numbers_spreadsheet_exposes_core_archives() -> Result<(), Error> {
 
     let catalog = spreadsheet.stylesheet_catalog();
     assert!(catalog.referenced_object_ids.len() > 20);
+    assert!(!catalog.records.is_empty());
     assert!(
         catalog
             .identifiers
@@ -205,6 +206,12 @@ fn numbers_spreadsheet_exposes_core_archives() -> Result<(), Error> {
             .style_names
             .iter()
             .any(|name| name == "Bold" || name == "Italic")
+    );
+    assert!(
+        catalog
+            .records
+            .iter()
+            .any(|record| record.name.contains("character-style-hyperlink"))
     );
 
     Ok(())
