@@ -129,6 +129,8 @@ fn iwa_archives_decode_snappy_chunks_and_headers() -> Result<(), Error> {
 
     assert_eq!(archive.chunks().len(), 1);
     assert!(!archive.body().is_empty());
+    assert_eq!(archive.descriptor().root_object_id, Some(1));
+    assert!(!archive.descriptor().object_references.is_empty());
 
     let first_message = archive.header().decode_message()?;
     assert_eq!(
@@ -171,10 +173,45 @@ fn numbers_spreadsheet_exposes_core_archives() -> Result<(), Error> {
     assert!(!spreadsheet.stylesheet().body().is_empty());
     assert!(
         spreadsheet
+            .stylesheet()
+            .descriptor()
+            .object_references
+            .iter()
+            .any(|reference| reference.object_id.is_some())
+    );
+    assert!(
+        spreadsheet
             .table_archives()
             .iter()
             .any(|archive| archive.path().ends_with("Tile.iwa"))
     );
+
+    Ok(())
+}
+
+#[test]
+fn pages_document_model_exposes_core_archives() -> Result<(), Error> {
+    let document = pages::Document::open(MODERN_NOVEL_EXAMPLE)?;
+    let model = document.document_model()?;
+
+    assert!(model.document().header().decode_message().is_ok());
+    assert!(model.document_metadata().header().decode_message().is_ok());
+    assert!(model.metadata().header().decode_message().is_ok());
+    assert!(model.stylesheet().header().decode_message().is_ok());
+    assert!(!model.index_archives().is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn keynote_presentation_exposes_core_archives() -> Result<(), Error> {
+    let document = keynote::Document::open(BASIC_WHITE_EXAMPLE)?;
+    let presentation = document.presentation()?;
+
+    assert!(presentation.document().header().decode_message().is_ok());
+    assert!(presentation.metadata().header().decode_message().is_ok());
+    assert!(presentation.stylesheet().header().decode_message().is_ok());
+    assert!(!presentation.index_archives().is_empty());
 
     Ok(())
 }

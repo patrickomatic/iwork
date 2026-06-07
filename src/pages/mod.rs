@@ -2,6 +2,10 @@ use std::path::Path;
 
 use crate::{DocumentKind, Error, InspectionReport, Package};
 
+mod document_model;
+
+pub use document_model::{DocumentModel, IndexArchive};
+
 #[derive(Debug, Clone)]
 pub struct Document {
     package: Package,
@@ -27,6 +31,10 @@ impl Document {
 
     pub fn package(&self) -> &Package {
         &self.package
+    }
+
+    pub fn document_model(&self) -> Result<DocumentModel, Error> {
+        DocumentModel::from_package(&self.package)
     }
 
     pub fn into_bytes(self) -> Vec<u8> {

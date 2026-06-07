@@ -27,7 +27,7 @@ pub mod pages;
 
 pub use error::Error;
 pub use inspect::{InspectionReport, count_keywords};
-pub use iwa::{IwaArchive, IwaChunk, IwaPacket};
+pub use iwa::{IwaArchive, IwaArchiveDescriptor, IwaChunk, IwaObjectReference, IwaPacket};
 pub use kind::DocumentKind;
 pub use package::{Entry, Package};
 pub use plist::PropertiesPlist;

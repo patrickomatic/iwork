@@ -52,6 +52,12 @@ impl ProtoMessage {
     pub fn field(&self, number: u32) -> Option<&ProtoField> {
         self.fields.iter().find(|field| field.number == number)
     }
+
+    pub fn fields_by_number(&self, number: u32) -> impl Iterator<Item = &ProtoField> {
+        self.fields
+            .iter()
+            .filter(move |field| field.number == number)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +92,21 @@ impl ProtoValue {
     pub fn as_message(&self) -> Result<Option<ProtoMessage>, Error> {
         match self {
             Self::LengthDelimited(value) => Ok(Some(ProtoMessage::decode(value)?)),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn decode_varint_bytes(&self) -> Result<Option<u64>, Error> {
+        match self {
+            Self::LengthDelimited(value) => {
+                let mut cursor = 0;
+                let decoded = read_varint(value, &mut cursor)?;
+                if cursor == value.len() {
+                    Ok(Some(decoded))
+                } else {
+                    Ok(None)
+                }
+            }
             _ => Ok(None),
         }
     }
