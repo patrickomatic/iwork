@@ -12,7 +12,7 @@ Current focus:
 - identify stable package metadata and archive structure
 - reverse engineer text and style encoding
 - start with basic formatting such as bold, italic, underline, and strikethrough
-- defer broad write support until read-path coverage is solid
+- keep write support intentionally narrow while read-path coverage grows
 
 ## Repository layout
 
@@ -28,13 +28,14 @@ Current focus:
 4. Text runs and basic style attributes.
 5. Small, well-tested write operations.
 
-The first write milestone should be intentionally narrow: a minimal document edit that preserves package integrity and unrelated structures.
+The first write milestone is intentionally narrow: lossless package round-tripping for Numbers, Pages, and Keynote documents, preserving package integrity and unrelated structures.
 
 ## Current capabilities
 
 - generic `Document` opening for supported iWork package types
+- generic and app-specific `write` support that preserves the original package bytes
 - inspection reports that classify the input as Numbers, Pages, or Keynote by extension
-- app-specific `pages::Document` and `keynote::Document` entry points that reject the wrong extension
+- app-specific `numbers::Document`, `pages::Document`, and `keynote::Document` entry points that reject the wrong extension
 - fixture coverage across all three document types
 
 ## License

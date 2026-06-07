@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use iwork::{Document, DocumentKind, Error, keynote, pages};
+use iwork::{Document, DocumentKind, Error, keynote, numbers, pages};
 
 const NUMBERS_EXAMPLES: &[&str] = &[
     "examples/numbers/my_stocks.numbers",
@@ -75,6 +75,7 @@ fn examples_are_classified_by_extension() -> Result<(), Error> {
             Path::new(path).extension().and_then(|value| value.to_str()),
             Some("numbers")
         );
+        assert!(numbers::Document::open(path).is_ok());
     }
 
     for path in PAGES_EXAMPLES {
