@@ -2,6 +2,10 @@ use std::path::Path;
 
 use crate::{DocumentKind, Error, InspectionReport, Package};
 
+mod spreadsheet;
+
+pub use spreadsheet::{Spreadsheet, TableArchive};
+
 #[derive(Debug, Clone)]
 pub struct Document {
     package: Package,
@@ -27,6 +31,10 @@ impl Document {
 
     pub fn package(&self) -> &Package {
         &self.package
+    }
+
+    pub fn spreadsheet(&self) -> Result<Spreadsheet, Error> {
+        Spreadsheet::from_package(&self.package)
     }
 
     pub fn into_bytes(self) -> Vec<u8> {

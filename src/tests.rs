@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{Document, DocumentKind, Error, Package, count_keywords, keynote, numbers, pages};
+use crate::{
+    Document, DocumentKind, Error, IwaArchive, Package, count_keywords, keynote, numbers, pages,
+};
 
 const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
 const MODERN_NOVEL_EXAMPLE: &str = "examples/pages/modern_novel.pages";
@@ -116,6 +118,63 @@ fn app_specific_document_writers_preserve_fixture_bytes() -> Result<(), Error> {
         std::fs::read(BASIC_WHITE_EXAMPLE)?
     );
     std::fs::remove_file(keynote_output)?;
+
+    Ok(())
+}
+
+#[test]
+fn iwa_archives_decode_snappy_chunks_and_headers() -> Result<(), Error> {
+    let document = Document::open(PERSONAL_BUDGET_EXAMPLE)?;
+    let archive = IwaArchive::decode(document.package().entry_bytes("Index/Document.iwa")?)?;
+
+    assert_eq!(archive.chunks().len(), 1);
+    assert!(!archive.body().is_empty());
+
+    let first_message = archive.header().decode_message()?;
+    assert_eq!(
+        first_message
+            .field(1)
+            .and_then(|field| field.value.as_varint()),
+        Some(1)
+    );
+
+    let nested_field = first_message
+        .field(2)
+        .ok_or(Error::InvalidIwa("missing nested archive info"))?;
+    let nested = nested_field
+        .value
+        .as_message()?
+        .ok_or(Error::InvalidIwa("expected nested archive info"))?;
+    assert_eq!(
+        nested.field(1).and_then(|field| field.value.as_varint()),
+        Some(1)
+    );
+
+    Ok(())
+}
+
+#[test]
+fn numbers_spreadsheet_exposes_core_archives() -> Result<(), Error> {
+    let document = numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?;
+    let spreadsheet = document.spreadsheet()?;
+
+    assert!(spreadsheet.document().header().decode_message().is_ok());
+    assert!(
+        spreadsheet
+            .document_metadata()
+            .header()
+            .decode_message()
+            .is_ok()
+    );
+    assert!(spreadsheet.metadata().header().decode_message().is_ok());
+    assert!(spreadsheet.stylesheet().chunks().len() > 1);
+    assert!(!spreadsheet.stylesheet().body().is_empty());
+    assert!(
+        spreadsheet
+            .table_archives()
+            .iter()
+            .any(|archive| archive.path().ends_with("Tile.iwa"))
+    );
 
     Ok(())
 }
