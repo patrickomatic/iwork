@@ -1,6 +1,6 @@
 # Apple iWork Rust Crate
 
-`iwork` is a Rust crate for opening Apple iWork packages (`.numbers`, `.pages`, and `.key`), inspecting a small set of stable metadata, and writing the original package bytes back out unchanged.
+`iwork` is a Rust crate for opening Apple iWork packages (`.numbers`, `.pages`, and `.key`), inspecting a small set of stable metadata, and extracting semantic content from supported document types.
 
 ## What This Crate Does
 
@@ -9,13 +9,12 @@
 - reads `Metadata/Properties.plist`
 - reads Numbers table cell values — text, numbers (decimal128), and dates
 - inspects `Index/DocumentStylesheet.iwa` for simple keyword signals
-- preserves the original bytes on write for round-trip workflows
+- extracts best-effort semantic content from Pages documents and Keynote decks
 
 ## Current Guarantees
 
 - `Document::open` accepts any supported iWork package
 - `numbers::Document`, `pages::Document`, and `keynote::Document` enforce the expected file extension
-- `write` is lossless for the current implementation because it writes the original package bytes back out unchanged
 - fixture coverage exists for Numbers, Pages, and Keynote examples in `examples/`
 
 ## Usage
@@ -87,11 +86,11 @@ use iwork::pages;
 
 fn main() -> Result<(), iwork::Error> {
     let document = pages::Document::open("examples/pages/term_paper.pages")?;
-    let semantic = document.semantic_document()?;
+    let content = document.document()?;
 
-    println!("title: {:?}", semantic.title());
-    println!("headings: {:?}", semantic.headings());
-    println!("first fragments: {:?}", &semantic.text_fragments()[..3.min(semantic.text_fragments().len())]);
+    println!("title: {:?}", content.title());
+    println!("headings: {:?}", content.headings());
+    println!("first fragments: {:?}", &content.text_fragments()[..3.min(content.text_fragments().len())]);
     Ok(())
 }
 ```
@@ -103,9 +102,9 @@ use iwork::keynote;
 
 fn main() -> Result<(), iwork::Error> {
     let document = keynote::Document::open("examples/keynote/blueprint.key")?;
-    let semantic = document.semantic_presentation()?;
+    let presentation = document.presentation()?;
 
-    for slide in semantic.slides() {
+    for slide in presentation.slides() {
         println!("{:?} {:?}", slide.layout_name(), slide.title());
         println!("text: {:?}", slide.text_fragments());
         println!("media: {:?}", slide.media_descriptions());
@@ -175,18 +174,6 @@ Known gaps today:
 - slide ordering is inferred from archive paths rather than a fully decoded slide graph
 - template slides and live slides are both surfaced because both carry meaningful text
 - presenter notes, animations, and exact object placement are not yet modeled
-
-App-specific entry points reject mismatched extensions:
-
-```rust
-use iwork::numbers;
-
-fn main() -> Result<(), iwork::Error> {
-    let document = numbers::Document::open("examples/numbers/personal_budget.numbers")?;
-    document.write("/tmp/personal_budget-copy.numbers")?;
-    Ok(())
-}
-```
 
 ## Format Notes
 

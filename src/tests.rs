@@ -1,6 +1,3 @@
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use crate::{
     Document, DocumentKind, Error, IwaArchive, Package, count_keywords, keynote, numbers, pages,
 };
@@ -70,56 +67,6 @@ fn app_specific_entry_points_reject_the_wrong_extension() {
 
     let keynote_error = keynote::Document::open(MODERN_NOVEL_EXAMPLE).unwrap_err();
     assert!(matches!(keynote_error, Error::UnsupportedDocumentType(_)));
-}
-
-#[test]
-fn generic_document_write_round_trips_all_fixture_formats() -> Result<(), Error> {
-    for path in [
-        PERSONAL_BUDGET_EXAMPLE,
-        MODERN_NOVEL_EXAMPLE,
-        BASIC_WHITE_EXAMPLE,
-    ] {
-        let document = Document::open(path)?;
-        let output_path = unique_output_path(path);
-        document.write(&output_path)?;
-
-        let original = std::fs::read(path)?;
-        let round_trip = std::fs::read(&output_path)?;
-        assert_eq!(round_trip, original, "{path} should round-trip exactly");
-
-        std::fs::remove_file(output_path)?;
-    }
-
-    Ok(())
-}
-
-#[test]
-fn app_specific_document_writers_preserve_fixture_bytes() -> Result<(), Error> {
-    let numbers_output = unique_output_path(PERSONAL_BUDGET_EXAMPLE);
-    numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?.write(&numbers_output)?;
-    assert_eq!(
-        std::fs::read(&numbers_output)?,
-        std::fs::read(PERSONAL_BUDGET_EXAMPLE)?
-    );
-    std::fs::remove_file(numbers_output)?;
-
-    let pages_output = unique_output_path(MODERN_NOVEL_EXAMPLE);
-    pages::Document::open(MODERN_NOVEL_EXAMPLE)?.write(&pages_output)?;
-    assert_eq!(
-        std::fs::read(&pages_output)?,
-        std::fs::read(MODERN_NOVEL_EXAMPLE)?
-    );
-    std::fs::remove_file(pages_output)?;
-
-    let keynote_output = unique_output_path(BASIC_WHITE_EXAMPLE);
-    keynote::Document::open(BASIC_WHITE_EXAMPLE)?.write(&keynote_output)?;
-    assert_eq!(
-        std::fs::read(&keynote_output)?,
-        std::fs::read(BASIC_WHITE_EXAMPLE)?
-    );
-    std::fs::remove_file(keynote_output)?;
-
-    Ok(())
 }
 
 #[test]
@@ -231,24 +178,8 @@ fn numbers_spreadsheet_exposes_core_archives() -> Result<(), Error> {
 }
 
 #[test]
-fn pages_document_model_exposes_core_archives() -> Result<(), Error> {
-    let document = pages::Document::open(MODERN_NOVEL_EXAMPLE)?;
-    let model = document.document_model()?;
-
-    assert!(model.document().header().decode_message().is_ok());
-    assert!(model.document_metadata().header().decode_message().is_ok());
-    assert!(model.metadata().header().decode_message().is_ok());
-    assert!(model.stylesheet().header().decode_message().is_ok());
-    assert!(!model.index_archives().is_empty());
-    assert!(!model.stylesheet_catalog().referenced_object_ids.is_empty());
-    assert!(!model.stylesheet_catalog().font_names.is_empty());
-
-    Ok(())
-}
-
-#[test]
-fn pages_semantic_document_extracts_fixture_text() -> Result<(), Error> {
-    let modern = pages::Document::open(MODERN_NOVEL_EXAMPLE)?.semantic_document()?;
+fn pages_document_extracts_fixture_text() -> Result<(), Error> {
+    let modern = pages::Document::open(MODERN_NOVEL_EXAMPLE)?.document()?;
     assert_eq!(modern.title(), None);
     assert!(
         modern
@@ -269,8 +200,7 @@ fn pages_semantic_document_extracts_fixture_text() -> Result<(), Error> {
             .any(|fragment| fragment == "of the Night Sky"),
     );
 
-    let term_paper =
-        pages::Document::open("examples/pages/term_paper.pages")?.semantic_document()?;
+    let term_paper = pages::Document::open("examples/pages/term_paper.pages")?.document()?;
     assert_eq!(term_paper.title(), Some("Geology 101 Report"));
     assert!(
         term_paper
@@ -289,28 +219,8 @@ fn pages_semantic_document_extracts_fixture_text() -> Result<(), Error> {
 }
 
 #[test]
-fn keynote_presentation_exposes_core_archives() -> Result<(), Error> {
-    let document = keynote::Document::open(BASIC_WHITE_EXAMPLE)?;
-    let presentation = document.presentation()?;
-
-    assert!(presentation.document().header().decode_message().is_ok());
-    assert!(presentation.metadata().header().decode_message().is_ok());
-    assert!(presentation.stylesheet().header().decode_message().is_ok());
-    assert!(!presentation.index_archives().is_empty());
-    assert!(
-        !presentation
-            .stylesheet_catalog()
-            .referenced_object_ids
-            .is_empty()
-    );
-    assert!(!presentation.stylesheet_catalog().font_names.is_empty());
-
-    Ok(())
-}
-
-#[test]
-fn keynote_semantic_presentation_extracts_slide_content() -> Result<(), Error> {
-    let basic = keynote::Document::open(BASIC_WHITE_EXAMPLE)?.semantic_presentation()?;
+fn keynote_presentation_extracts_slide_content() -> Result<(), Error> {
+    let basic = keynote::Document::open(BASIC_WHITE_EXAMPLE)?.presentation()?;
     assert!(basic.slides().iter().any(|slide| slide.is_template()));
     assert!(
         basic
@@ -325,8 +235,7 @@ fn keynote_semantic_presentation_extracts_slide_content() -> Result<(), Error> {
             .any(|text| text == "Presentation Subtitle")
     }),);
 
-    let blueprint =
-        keynote::Document::open("examples/keynote/blueprint.key")?.semantic_presentation()?;
+    let blueprint = keynote::Document::open("examples/keynote/blueprint.key")?.presentation()?;
     assert!(blueprint.slides().iter().any(|slide| {
         slide
             .media_descriptions()
@@ -340,8 +249,7 @@ fn keynote_semantic_presentation_extracts_slide_content() -> Result<(), Error> {
             .any(|slide| { slide.text_fragments().iter().any(|text| text == "Client") })
     );
 
-    let parchment =
-        keynote::Document::open("examples/keynote/parchment.key")?.semantic_presentation()?;
+    let parchment = keynote::Document::open("examples/keynote/parchment.key")?.presentation()?;
     assert!(parchment.slides().iter().any(|slide| {
         slide
             .media_descriptions()
@@ -520,16 +428,4 @@ fn row_contains_text_sequence(row: &[&str], expected: &[&str]) -> bool {
         }
     }
     false
-}
-
-fn unique_output_path(input_path: &str) -> PathBuf {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time should be after unix epoch")
-        .as_nanos();
-    let extension = Path::new(input_path)
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("tmp");
-    std::env::temp_dir().join(format!("iwork-roundtrip-{timestamp}.{extension}"))
 }

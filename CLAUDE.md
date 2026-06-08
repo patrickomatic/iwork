@@ -47,10 +47,6 @@ iwork is a Rust library (+ thin CLI) for reading Apple iWork packages (`.numbers
 - `src/error.rs` — Unified `Error` type covering IO, UTF-8, plist, IWA, and truncation errors.
 - `src/main.rs` — CLI: opens a file, prints inspection report.
 
-### Write behavior
-
-Writes are lossless but non-semantic: the original package bytes are written back unchanged. No in-place editing of package contents is supported yet.
-
 ## Tests
 
 Integration tests live in `tests/harness.rs` and are fixture-driven against 9 real iWork example files in `examples/numbers/`, `examples/pages/`, and `examples/keynote/`. Tests verify that all examples open, expose metadata, and contain a stylesheet signal. Unit tests for internal modules are in `src/tests.rs`.
