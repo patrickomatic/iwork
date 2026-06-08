@@ -10,9 +10,13 @@ pub struct Table {
 }
 
 impl Table {
-    /// Parse all tile archives from a tile archive, using the provided string `DataList` for lookups.
-    pub(crate) fn from_tile(tile: &IwaArchive, strings: &HashMap<u32, String>) -> Self {
-        let rows = decode_rows(tile, strings);
+    /// Parse all tile archives from a tile archive, using the provided string and formula `DataList`s.
+    pub(crate) fn from_tile(
+        tile: &IwaArchive,
+        strings: &HashMap<u32, String>,
+        formula: &HashMap<u32, f64>,
+    ) -> Self {
+        let rows = decode_rows(tile, strings, formula);
         Self { rows }
     }
 
@@ -89,7 +93,7 @@ pub(crate) fn decode_string_datalist(archive: &IwaArchive) -> HashMap<u32, Strin
     map
 }
 
-fn decode_rows(tile: &IwaArchive, strings: &HashMap<u32, String>) -> Vec<TableRow> {
+fn decode_rows(tile: &IwaArchive, strings: &HashMap<u32, String>, formula: &HashMap<u32, f64>) -> Vec<TableRow> {
     let body = tile.body();
     let mut cursor = tile.leading_object_references_len();
     let mut rows = Vec::new();
@@ -114,14 +118,14 @@ fn decode_rows(tile: &IwaArchive, strings: &HashMap<u32, String>) -> Vec<TableRo
         if msg.fields().is_empty() { continue }
 
         let row_index = msg.field(1).and_then(|f| f.value.as_varint()).unwrap_or(0);
-        let cells = decode_cells(&msg, strings);
+        let cells = decode_cells(&msg, strings, formula);
         rows.push(TableRow { index: row_index, cells });
     }
 
     rows
 }
 
-fn decode_cells(msg: &crate::protobuf::ProtoMessage, strings: &HashMap<u32, String>) -> Vec<CellValue> {
+fn decode_cells(msg: &crate::protobuf::ProtoMessage, strings: &HashMap<u32, String>, formula: &HashMap<u32, f64>) -> Vec<CellValue> {
     let f4 = msg.field(4).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
     let f6 = msg.field(6).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
     let f7 = msg.field(7).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
@@ -164,12 +168,16 @@ fn decode_cells(msg: &crate::protobuf::ProtoMessage, strings: &HashMap<u32, Stri
             }
 
             0x00 if sub_type == 0x00 => {
-                // Date: f64 at bytes 0-7
+                // Date cell: f64 LE at bytes 0-7.
+                // Cocoa dates (seconds since Jan 1 2001) for years 2001-2128 are in [1, 4e9].
+                // If the value is outside that range it is Pattern D (formula cell): bytes 8-11
+                // hold the formula DataList key.
                 let secs = f64::from_le_bytes(rec[..8].try_into().unwrap_or([0; 8]));
-                if secs == 0.0 {
-                    CellValue::Empty
-                } else {
+                if secs > 1.0 && secs < 4_000_000_000.0 {
                     CellValue::Date(secs)
+                } else {
+                    let key = u32::from_le_bytes(rec[8..12].try_into().unwrap_or([0; 4]));
+                    formula.get(&key).copied().map_or(CellValue::Empty, CellValue::Number)
                 }
             }
 
@@ -183,6 +191,13 @@ fn decode_cells(msg: &crate::protobuf::ProtoMessage, strings: &HashMap<u32, Stri
                 } else {
                     CellValue::Empty
                 }
+            }
+
+            // Pattern A: byte0 is a non-zero type that varies per row (formula cells),
+            // bytes 1-3 are zero, bytes 8-11 hold the formula DataList key.
+            _ if rec[1] == 0 && rec[2] == 0 && rec[3] == 0 => {
+                let key = u32::from_le_bytes(rec[8..12].try_into().unwrap_or([0; 4]));
+                formula.get(&key).copied().map_or(CellValue::Empty, CellValue::Number)
             }
 
             _ => CellValue::Empty,

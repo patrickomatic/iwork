@@ -144,8 +144,6 @@ Field 6 is a flat byte buffer. Offsets in field 4 and field 7 index into it. Off
 | 0-7     | —                 | —                  | f64 LE seconds since epoch  | —                             |
 | 8-11    | style data        | rich text style    | format DataList key (u32)   | DataList key (u32 LE, varies) |
 
-**Known-unknown cell type bytes**: `my_stocks.numbers` contains cell records with type bytes `0x01`, `0x02`, `0x04`, `0x0e`, `0x0f`, and `0xcb` that are not yet understood. These likely encode numeric values (prices, percentages, market caps) with different encodings than the `0x00/0x80` path above. Currently decoded as `CellValue::Empty`.
-
 **Inline numeric value area** *(structurally grounded)*: starts at `max(field7_non_sentinel_offsets) + 12` — the byte immediately after the last field 7 style record. This formula is general and derives from the field 7 offset array, not from any hardcoded position.
 
 **Inline numeric value encoding** *(provisional, observed in one file)*: the first 4 bytes at the inline area start are a u32 LE value for the first numeric column; subsequent numeric columns follow at +12 byte intervals. The unit (whole dollars, cents, etc.) depends on the format DataList referenced at bytes 8-11 of the cell record. This was observed in `personal_budget.numbers` only and may not generalise.
@@ -164,7 +162,84 @@ String cell records (type 0x03) store a u32 DataList key at bytes 4-7. Look up t
 
 For type `0x00` / sub-type `0x80` cells: the value is stored in the inline area (see above), not in the cell record itself. Bytes 4-7 of the cell record are a constant format reference; bytes 8-11 are the format DataList key (varies per column, constant per row). The format DataList encodes display precision. The actual numeric unit (whole dollars, cents, etc.) is not yet determined structurally.
 
-Other numeric cell types (`0x01`, `0x02`, `0x04`, etc. — seen in `my_stocks.numbers`) are not yet decoded. The value location and encoding for those types is unknown.
+### Formula-Result Cells *(resolved)*
+
+Some numeric cells do not store their value inline — they reference it by a **u32 LE key in bytes 8-11** of the cell record, looked up in a separate *formula* `DataList`. This covers the records previously catalogued as Pattern A and Pattern D below.
+
+**Formula DataList structure** (`DataList` archive with field 1 / listType = `3`):
+
+- The list message's field 2 is the maximum key (`max_key`) in the list.
+- Each entry is a field-3 sub-message: field 1 = the u32 key; field 5 = a nested value message. The f64 result is reached via field 5 → field 1 → field 4 (a `fixed64`, read with `f64::from_bits`). See `decode_formula_datalist` in `src/numbers/spreadsheet.rs`.
+
+**Matching a Tile to its formula DataList.** A document contains several formula DataLists with disjoint key ranges. To pick the right one for a Tile, `scan_max_formula_key` finds the largest bytes-8-11 value that *varies across rows within a single column* (a constant value is a format reference, not a formula key), and the matcher selects the smallest DataList whose `max_key` covers it.
+
+> **Pitfall (fixed):** non-formula columns also place varying values in bytes 8-11 (style/format indices that can read as large integers, e.g. `2565` in `my_stocks.numbers`). Left unbounded, the scan returns one of those, no DataList's `max_key` covers it, and *every* formula cell falls back to `Empty`. The scan is therefore capped by an `upper_bound` = the largest `max_key` across all formula DataLists (`formula_lists` sorted ascending → `.last()`); candidates above it are rejected. In `my_stocks.numbers` the formula list is `DataList-1139377` (`max_key=19`, 12 entries), so the bound is 19.
+
+### Unknown Cell Encodings (Investigation Notes)
+
+The following observations come from structural analysis of `my_stocks.numbers` (`Tile-1139365.iwa`). **Byte 0 of the cell record is not always a fixed type tag** — it varies per row for the same column in several observed patterns. Patterns A and D below are now decoded as formula-result cells (see above); Patterns B, C, and E remain `CellValue::Empty`.
+
+**Pattern A — varying byte 0, bytes 1-7 constant per column, bytes 8-11 vary:**
+
+```
+col 1, row 1: [0f 00 00 00  04 00 00 00  01 00 00 00]
+col 1, row 2: [10 00 00 00  04 00 00 00  12 00 00 00]
+col 1, row 3: [11 00 00 00  04 00 00 00  0e 00 00 00]
+```
+
+- Bytes 0 and 8-11 both vary per row; bytes 1-7 are constant per column.
+- Bytes 4-7 = `04 00 00 00` look like a format reference (same role as in 0x00/0x80 cells).
+- The value encoding is not yet determined. Byte 0 as a u32 LE (together with bytes 1-3 = 0x00) gives small integers (15, 16, 17) that do not obviously encode the cell value.
+
+**Pattern B — varying byte 0, wide variable bytes 5-11:**
+
+```
+col 6, row 1: [01 52 00 00 00  78 86 2b 86 17 01 00]
+col 6, row 2: [01 52 00 00 00  a0 18 47 2a d0 00 00]
+col 6, row 3: [01 52 00 00 00  10 53 9c e6 86 01 00]
+```
+
+- Bytes 0-4 = `01 52 00 00 00` are constant per column.
+- Bytes 5-11 vary per row. Likely encode the cell value, but the encoding is unknown (not a standard f64 or u32).
+
+**Pattern C — entirely constant record across all rows:**
+
+```
+col 5, all rows: [01 00 00 00 05 0a 00 00 00 00 00 08]
+col 8, all rows: [02 00 00 00 02 00 00 00 05 0a 00 00]
+col 11, all rows: [04 00 00 00 02 00 00 00 02 00 00 00]
+```
+
+- All 12 bytes are identical across every data row.
+- Likely formula cells, cells computed from other cells, or some other indirection — no per-row value is stored directly in the record.
+
+**Pattern D — type 0x00 with unexpected byte layout:**
+
+```
+col 3, row 1: [00 00 00 00  48 12 02 00  03 00 00 00]
+col 3, row 2: [00 00 00 00  48 12 02 00  12 00 00 00]
+col 3, row 3: [00 00 00 00  48 12 02 00  13 00 00 00]
+```
+
+- Byte 0 = 0x00, byte 2 = 0x00 → current code interprets as a date (f64 at bytes 0-7).
+- But bytes 0-7 are `00 00 00 00 48 12 02 00` (u64 LE = 0x0002124800000000, a denormal f64 ≈ 0), which the decoder treats as `Empty`.
+- Bytes 4-7 = `48 12 02 00` are constant per column (looks like a format reference).
+- Bytes 8-11 vary per row (3, 18, 19) — same role as a DataList key.
+- **Hypothesis**: this may be a numeric cell, not a date — the format-ref / DataList-key pattern matches the 0x00/0x80 number layout, suggesting byte 2 = 0x00 does not reliably distinguish dates from numbers.
+
+**Pattern E — large varint-like byte 0 (high-byte set):**
+
+```
+col 10, row 1: [cb 61 01 00 00 00 00 00 00 00 24 b0]
+col 10, row 2: [9d 9a 00 00 00 00 00 00 00 00 24 30]
+col 10, row 3: [13 46 02 00 00 00 00 00 00 00 22 b0]
+```
+
+- Bytes 0-3 vary; bytes 4-9 = `00 00 00 00 00 00` are constant; bytes 10-11 vary per row.
+- The `cb`, `9d` bytes have bit 7 set (varint continuation in LEB128). If bytes 0-N are a LEB128 varint and bytes 10-11 are a secondary field, the varint values are 12491, 3357, and 19 — all small integers, but their units are unknown.
+- **Alternative**: bytes 0-3 are a u32 LE value (90571, 39581, 74259) with bytes 10-11 as a secondary key.
+
+**Next steps**: Patterns A and D are resolved (formula-result cells, see above). For the remaining patterns B, C, and E, examine the DataList archives referenced by bytes 4-7 and 8-11 of these records. `DataList-1139369` (listType field1=9, 1616 bytes — the largest non-string, non-formula archive) is the prime suspect for carrying the wide values seen in Pattern B; its encoding is not yet decoded.
 
 ## Write Behavior
 
