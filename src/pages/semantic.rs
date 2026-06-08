@@ -2,6 +2,15 @@ use crate::{Error, Package};
 
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 
+/// Best-effort semantic text extracted from a Pages document.
+///
+/// Current limitations:
+/// - text is recovered from printable archive runs, not a fully decoded Pages
+///   paragraph/text-run object graph
+/// - titles may be `None` when the visible title is split across archive
+///   fragments, as in `modern_novel.pages`
+/// - body prose can still contain partial or template-derived fragments because
+///   the underlying archive encoding interleaves content with formatting data
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SemanticDocument {
     title: Option<String>,

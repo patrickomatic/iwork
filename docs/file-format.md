@@ -197,6 +197,15 @@ This is intentionally a **best-effort semantic layer**, not a complete model of
 Pages paragraphs, text runs, or anchored objects. The fixture coverage asserts
 recoverable content from `modern_novel.pages` and `term_paper.pages`.
 
+Current known limitations:
+
+- some visually contiguous titles are split across multiple archive fragments,
+  so title recovery can legitimately return `None`
+- extracted prose may still include partial template text or other nearby
+  printable runs when content and formatting bytes are interleaved
+- the parser does not yet reconstruct paragraph boundaries, text-run styling,
+  or anchored object placement
+
 ## Write Behavior
 
 Current write support is package-preserving, not format-rewriting.
