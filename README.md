@@ -96,6 +96,25 @@ fn main() -> Result<(), iwork::Error> {
 }
 ```
 
+Extract semantic slide content from a Keynote deck:
+
+```rust
+use iwork::keynote;
+
+fn main() -> Result<(), iwork::Error> {
+    let document = keynote::Document::open("examples/keynote/blueprint.key")?;
+    let semantic = document.semantic_presentation()?;
+
+    for slide in semantic.slides() {
+        println!("{:?} {:?}", slide.layout_name(), slide.title());
+        println!("text: {:?}", slide.text_fragments());
+        println!("media: {:?}", slide.media_descriptions());
+    }
+
+    Ok(())
+}
+```
+
 ## Numbers Parsing Notes
 
 The Numbers reader currently follows a two-stage model:
@@ -137,6 +156,25 @@ Known gaps today:
 - text fragments can still include partial/template prose because the archive
   interleaves content with formatting and layout bytes
 - this is read-only semantic extraction, not a structured Pages editing model
+
+## Keynote Semantic Parsing Notes
+
+The Keynote semantic layer works at the slide-archive level. It scans `Slide*.iwa`
+and `TemplateSlide*.iwa` entries and returns best-effort semantic slide content:
+
+- placeholder or layout titles when they are recoverable
+- slide text fragments
+- media descriptions and alt-text-like strings from image-heavy slides
+
+This is enough to recover stable content from the current `basic_white.key`,
+`blueprint.key`, and `parchment.key` fixtures, especially for slide placeholders
+and image descriptions.
+
+Known gaps today:
+
+- slide ordering is inferred from archive paths rather than a fully decoded slide graph
+- template slides and live slides are both surfaced because both carry meaningful text
+- presenter notes, animations, and exact object placement are not yet modeled
 
 App-specific entry points reject mismatched extensions:
 
