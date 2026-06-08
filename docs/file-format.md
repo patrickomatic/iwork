@@ -25,9 +25,10 @@ The crate currently relies on these ZIP-level properties:
 - central directory records use the standard signature `0x02014B50`
 - local file headers use the standard signature `0x04034B50`
 - entry names are UTF-8
-- entry data is only read from uncompressed entries with compression method `0`
+- entry data is read from stored entries with compression method `0`
+- entry data is read from deflated entries with compression method `8`
 
-The implementation does not currently inflate compressed ZIP members. If an entry needed by the reader is compressed, the crate returns `Error::UnsupportedCompression`.
+Other ZIP compression methods still return `Error::UnsupportedCompression`.
 
 ## Package Layout
 
