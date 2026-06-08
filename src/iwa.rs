@@ -3,6 +3,9 @@ use crate::protobuf::{ProtoMessage, read_varint};
 
 const CHUNK_HEADER_LEN: usize = 4;
 const SNAPPY_CHUNK_TYPE: u8 = 0;
+/// Decompressed bytes per Snappy chunk emitted by [`IwaArchive::encode`],
+/// matching the 64 KiB window real iWork writers use.
+const IWA_CHUNK_SIZE: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IwaArchive {
@@ -195,6 +198,12 @@ impl IwaArchive {
         strings
     }
 
+    /// Serializes an archive from its header packet and body into the on-disk
+    /// `.iwa` byte stream (length-prefixed packet + body, Snappy-framed).
+    ///
+    /// The decompressed stream is split into 64 KiB Snappy chunks, matching the
+    /// chunk size real iWork writers emit so the output stays within the bounds
+    /// other readers assume.
     pub fn encode(header: IwaPacket, body: Vec<u8>) -> Result<Vec<u8>, Error> {
         let mut archive_bytes = Vec::new();
         let header_len = u64::try_from(header.bytes.len())
@@ -203,20 +212,29 @@ impl IwaArchive {
         archive_bytes.extend_from_slice(&header.bytes);
         archive_bytes.extend_from_slice(&body);
 
-        let compressed = compress_snappy_literal(&archive_bytes)?;
-        let compressed_len = u32::try_from(compressed.len())
-            .map_err(|_| Error::InvalidIwa("chunk length overflow"))?;
-        if compressed_len > 0x00ff_ffff {
-            return Err(Error::InvalidIwa("chunk length overflow"));
-        }
+        let mut out = Vec::new();
+        for window in archive_bytes.chunks(IWA_CHUNK_SIZE) {
+            let compressed = compress_snappy_literal(window)?;
+            let compressed_len = u32::try_from(compressed.len())
+                .map_err(|_| Error::InvalidIwa("chunk length overflow"))?;
+            if compressed_len > 0x00ff_ffff {
+                return Err(Error::InvalidIwa("chunk length overflow"));
+            }
 
-        let mut out = Vec::with_capacity(CHUNK_HEADER_LEN + compressed.len());
-        out.push(SNAPPY_CHUNK_TYPE);
-        out.push((compressed_len & 0xff) as u8);
-        out.push(((compressed_len >> 8) & 0xff) as u8);
-        out.push(((compressed_len >> 16) & 0xff) as u8);
-        out.extend_from_slice(&compressed);
+            out.reserve(CHUNK_HEADER_LEN + compressed.len());
+            out.push(SNAPPY_CHUNK_TYPE);
+            out.push((compressed_len & 0xff) as u8);
+            out.push(((compressed_len >> 8) & 0xff) as u8);
+            out.push(((compressed_len >> 16) & 0xff) as u8);
+            out.extend_from_slice(&compressed);
+        }
         Ok(out)
+    }
+
+    /// Re-serializes this archive losslessly, reproducing the same header packet
+    /// and body bytes a reader will observe (the Snappy framing may differ).
+    pub fn reencode(&self) -> Result<Vec<u8>, Error> {
+        Self::encode(self.header.clone(), self.body.clone())
     }
 }
 

@@ -77,6 +77,39 @@ fn package_writer_round_trips_stored_entries() -> Result<(), Error> {
 }
 
 #[test]
+fn iwa_encoder_reproduces_every_fixture_archive() -> Result<(), Error> {
+    let document = Document::open(PERSONAL_BUDGET_EXAMPLE)?;
+    let package = document.package();
+
+    let mut checked = 0;
+    for entry in package.entries() {
+        if !entry.path.ends_with(".iwa") {
+            continue;
+        }
+
+        let original = IwaArchive::decode(package.entry_bytes(&entry.path)?)?;
+        let reencoded = IwaArchive::decode(&original.reencode()?)?;
+
+        assert_eq!(
+            reencoded.header().bytes(),
+            original.header().bytes(),
+            "header packet differs for {}",
+            entry.path
+        );
+        assert_eq!(
+            reencoded.body(),
+            original.body(),
+            "body differs for {}",
+            entry.path
+        );
+        checked += 1;
+    }
+
+    assert!(checked > 0, "expected at least one .iwa archive in the fixture");
+    Ok(())
+}
+
+#[test]
 fn protobuf_messages_round_trip_through_encoder() -> Result<(), Error> {
     let nested = ProtoMessage::new(vec![ProtoField::varint(1, 99)]);
     let message = ProtoMessage::new(vec![

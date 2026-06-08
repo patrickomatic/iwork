@@ -36,9 +36,12 @@ impl Workbook {
 
     /// Emits a `.numbers` package using an embedded scaffold shell.
     ///
-    /// This currently rewrites the first visible 4-column table from the
-    /// bundled personal-budget fixture. It does not yet synthesize the entire
-    /// Numbers document graph from scratch.
+    /// Every `.iwa` member is decoded and re-serialized through this crate's own
+    /// IWA encoder rather than copied verbatim, so the whole document graph
+    /// (`Document`, `Metadata`, `CalculationEngine`, `ViewState`, …) is produced
+    /// by our writer. The first visible 4-column table is replaced with the
+    /// caller's rows. This still seeds the document/object graph from the
+    /// bundled personal-budget fixture rather than synthesizing it from scratch.
     pub fn encode_scaffold_package(&self) -> Result<Vec<u8>, Error> {
         let Some(table) = self.tables.first() else {
             return Err(Error::InvalidIwa("workbook must contain at least one table"));
@@ -54,12 +57,17 @@ impl Workbook {
 
         for entry in package.entries() {
             let bytes = match entry.path.as_str() {
-                SUMMARY_TABLE_TILE_PATH => tile.as_slice(),
-                SUMMARY_TABLE_DATALIST_PATH => datalist.as_slice(),
-                "Metadata/DocumentIdentifier" => document_identifier.as_bytes(),
-                _ => package.entry_bytes(&entry.path)?,
+                SUMMARY_TABLE_TILE_PATH => tile.clone(),
+                SUMMARY_TABLE_DATALIST_PATH => datalist.clone(),
+                "Metadata/DocumentIdentifier" => document_identifier.clone().into_bytes(),
+                path if std::path::Path::new(path).extension().is_some_and(|ext| ext == "iwa") => {
+                    // Re-emit through our own IWA encoder to prove the writer can
+                    // reproduce the full archive graph, not just the table tiles.
+                    IwaArchive::decode(package.entry_bytes(path)?)?.reencode()?
+                }
+                path => package.entry_bytes(path)?.to_vec(),
             };
-            writer.add_entry(entry.path.clone(), bytes.to_vec());
+            writer.add_entry(entry.path.clone(), bytes);
         }
 
         writer.finish()
