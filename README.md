@@ -80,6 +80,28 @@ fn main() -> Result<(), iwork::Error> {
 }
 ```
 
+## Numbers Parsing Notes
+
+The Numbers reader currently follows a two-stage model:
+
+- `Spreadsheet::table_archives()` exposes the raw `Index/Tables/*.iwa` archives
+- `Spreadsheet::tables()` resolves those archives into decoded rows and [`CellValue`](src/numbers/table.rs) values
+
+The current parser relies on these reverse-engineered format details:
+
+- string values are looked up through `DataList*.iwa` archives
+- numeric and date values are stored inline in each tile row's field-6 cell buffer
+- field 7 is the authoritative uint16 offset table for locating cell records
+- date values are `f64` seconds since the Cocoa epoch (`2001-01-01T00:00:00Z`)
+- decimal values may be stored as IEEE 754-2008 decimal128 and are converted to `f64`
+
+The test suite covers both low-level decoder branches and fixture-backed examples for:
+
+- text header rows from `personal_budget.numbers` and `pivot_table.numbers`
+- decimal128 numeric values from `my_stocks.numbers`
+- Cocoa-epoch date cells from the Numbers fixtures
+- row decoding behavior around column counts, sentinels, and truncated records
+
 App-specific entry points reject mismatched extensions:
 
 ```rust

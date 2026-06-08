@@ -163,6 +163,19 @@ String cells carry a u32 `DataList` key (flag bit `0x8`, at byte 12). Look it up
 
 Dates are f64 seconds since the Cocoa/NSDate epoch: **January 1, 2001, 00:00:00 UTC** (flag bit `0x4`). Example: 625,881,600 → November 3, 2020.
 
+### Reader API Mapping
+
+These format details surface through the public Numbers API like this:
+
+- `numbers::Document::spreadsheet()` decodes the core document archives plus `Index/Tables/*.iwa`
+- `Spreadsheet::table_archives()` exposes the raw decoded `DataList` and `Tile` archives
+- `Spreadsheet::tables()` resolves string `DataList` entries first, then decodes row/cell values from each tile
+- `TableRow::cells` contains `CellValue::{Empty, Text, Number, Date}`
+
+The fixture-backed tests intentionally assert real header rows and representative values from
+`personal_budget.numbers`, `pivot_table.numbers`, and `my_stocks.numbers` so changes to the
+reverse-engineered row layout fail loudly.
+
 ## Write Behavior
 
 Current write support is package-preserving, not format-rewriting.
