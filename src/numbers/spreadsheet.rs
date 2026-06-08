@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
+use super::table::{Table, decode_string_datalist};
 use crate::iwa::IwaArchive;
 use crate::{Error, Package, StylesheetCatalog};
-use super::table::{Table, decode_string_datalist};
 
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 const DOCUMENT_METADATA_ENTRY: &str = "Index/DocumentMetadata.iwa";
@@ -72,6 +72,11 @@ impl Spreadsheet {
         &self.table_archives
     }
 
+    /// Decodes all table tiles in path order.
+    ///
+    /// String cells are resolved through any `DataList` archives found under
+    /// `Index/Tables/`; numeric and date values are decoded inline from each
+    /// tile row's cell-storage buffer.
     pub fn tables(&self) -> Vec<Table> {
         let strings: HashMap<u32, String> = self
             .table_archives
@@ -95,10 +100,12 @@ pub struct TableArchive {
 }
 
 impl TableArchive {
+    /// Package-relative path such as `Index/Tables/Tile-....iwa`.
     pub fn path(&self) -> &str {
         &self.path
     }
 
+    /// Decoded IWA archive for the table-related entry.
     pub fn archive(&self) -> &IwaArchive {
         &self.archive
     }

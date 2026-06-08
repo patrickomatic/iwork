@@ -281,14 +281,20 @@ fn stylesheet_payload_bold_and_italic_are_structural() -> Result<(), Error> {
         .attribute_hints
         .iter()
         .any(|hint| hint.bold == Some(true));
-    assert!(has_structural_bold, "expected at least one payload with field 1 = 1 (bold)");
+    assert!(
+        has_structural_bold,
+        "expected at least one payload with field 1 = 1 (bold)"
+    );
 
     // At least some records should have italic=Some(true) from the payload (field 2 = 1).
     let has_structural_italic = catalog
         .attribute_hints
         .iter()
         .any(|hint| hint.italic == Some(true));
-    assert!(has_structural_italic, "expected at least one payload with field 2 = 1 (italic)");
+    assert!(
+        has_structural_italic,
+        "expected at least one payload with field 2 = 1 (italic)"
+    );
 
     Ok(())
 }
@@ -358,6 +364,76 @@ fn my_stocks_decodes_text_and_decimal128_numbers() -> Result<(), Error> {
     assert!(has_date, "time-series table should contain Date cells");
 
     Ok(())
+}
+
+#[test]
+fn personal_budget_decodes_expected_header_rows() -> Result<(), Error> {
+    let tables = numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?
+        .spreadsheet()?
+        .tables();
+
+    let rows: Vec<Vec<&str>> = tables
+        .iter()
+        .flat_map(|table| table.rows())
+        .map(|row| row.cells.iter().filter_map(|cell| cell.as_text()).collect())
+        .collect();
+
+    assert!(
+        rows.iter().any(|row| row_contains_text_sequence(
+            row,
+            &["Date", "Description", "Category", "Amount"]
+        )),
+        "expected the transaction table header row to decode",
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row_contains_text_sequence(row, &["Groceries", "Food"])),
+        "expected a transaction row to decode with text columns intact",
+    );
+
+    Ok(())
+}
+
+#[test]
+fn pivot_table_decodes_expected_grouping_headers() -> Result<(), Error> {
+    const PIVOT_TABLE: &str = "examples/numbers/pivot_table.numbers";
+    let tables = numbers::Document::open(PIVOT_TABLE)?
+        .spreadsheet()?
+        .tables();
+
+    let rows: Vec<Vec<&str>> = tables
+        .iter()
+        .flat_map(|table| table.rows())
+        .map(|row| row.cells.iter().filter_map(|cell| cell.as_text()).collect())
+        .collect();
+
+    assert!(
+        rows.iter().any(|row| row_contains_text_sequence(
+            row,
+            &["Date", "Rows", "Values", "Units", "Revenue"]
+        )),
+        "expected the source data header row to decode",
+    );
+    assert!(
+        rows.iter()
+            .any(|row| { row_contains_text_sequence(row, &["Columns", "Rows"],) }),
+        "expected the pivot header row to decode",
+    );
+
+    Ok(())
+}
+
+fn row_contains_text_sequence(row: &[&str], expected: &[&str]) -> bool {
+    let mut position = 0;
+    for value in row {
+        if *value == expected[position] {
+            position += 1;
+            if position == expected.len() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn unique_output_path(input_path: &str) -> PathBuf {
