@@ -19,9 +19,11 @@ use crate::{DocumentKind, Error, InspectionReport, Package};
 
 mod spreadsheet;
 mod table;
+mod write;
 
 pub use spreadsheet::{Spreadsheet, TableArchive};
 pub use table::{CellValue, Table, TableRow};
+pub use write::{EncodedTableArchive, Workbook, WritableTable};
 
 #[derive(Debug, Clone)]
 pub struct Document {

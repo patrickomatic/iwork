@@ -194,6 +194,30 @@ impl IwaArchive {
 
         strings
     }
+
+    pub fn encode(header: IwaPacket, body: Vec<u8>) -> Result<Vec<u8>, Error> {
+        let mut archive_bytes = Vec::new();
+        let header_len = u64::try_from(header.bytes.len())
+            .map_err(|_| Error::InvalidIwa("packet length overflow"))?;
+        push_varint(&mut archive_bytes, header_len);
+        archive_bytes.extend_from_slice(&header.bytes);
+        archive_bytes.extend_from_slice(&body);
+
+        let compressed = compress_snappy_literal(&archive_bytes)?;
+        let compressed_len = u32::try_from(compressed.len())
+            .map_err(|_| Error::InvalidIwa("chunk length overflow"))?;
+        if compressed_len > 0x00ff_ffff {
+            return Err(Error::InvalidIwa("chunk length overflow"));
+        }
+
+        let mut out = Vec::with_capacity(CHUNK_HEADER_LEN + compressed.len());
+        out.push(SNAPPY_CHUNK_TYPE);
+        out.push((compressed_len & 0xff) as u8);
+        out.push(((compressed_len >> 8) & 0xff) as u8);
+        out.push(((compressed_len >> 16) & 0xff) as u8);
+        out.extend_from_slice(&compressed);
+        Ok(out)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,6 +234,10 @@ pub struct IwaPacket {
 }
 
 impl IwaPacket {
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self { offset: 0, bytes }
+    }
+
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -272,6 +300,36 @@ impl IwaArchiveDescriptor {
             object_references,
         })
     }
+
+    pub fn encode_message(&self) -> Result<ProtoMessage, Error> {
+        let mut fields = Vec::new();
+
+        if let Some(root_object_id) = self.root_object_id {
+            fields.push(crate::protobuf::ProtoField::varint(1, root_object_id));
+        }
+
+        let mut info_fields = Vec::new();
+        if let Some(kind_hint) = self.kind_hint {
+            info_fields.push(crate::protobuf::ProtoField::varint(1, kind_hint));
+        }
+        if let Some(body_hint) = self.body_hint {
+            info_fields.push(crate::protobuf::ProtoField::varint(3, body_hint));
+        }
+        for object_reference in &self.object_references {
+            info_fields.push(crate::protobuf::ProtoField::message(
+                4,
+                object_reference.encode_message()?,
+            )?);
+        }
+        if !info_fields.is_empty() {
+            fields.push(crate::protobuf::ProtoField::message(
+                2,
+                ProtoMessage::new(info_fields),
+            )?);
+        }
+
+        Ok(ProtoMessage::new(fields))
+    }
 }
 
 fn decode_object_id_hint(value: &crate::protobuf::ProtoValue) -> Result<Option<u64>, Error> {
@@ -305,6 +363,25 @@ pub struct IwaObjectReference {
     pub object_id: Option<u64>,
     pub kind_hint: Option<u64>,
     pub state_hint: Option<u64>,
+}
+
+impl IwaObjectReference {
+    pub fn encode_message(&self) -> Result<ProtoMessage, Error> {
+        let mut fields = Vec::new();
+        if let Some(object_id) = self.object_id {
+            fields.push(crate::protobuf::ProtoField::bytes(
+                1,
+                encode_varint_bytes(object_id),
+            ));
+        }
+        if let Some(kind_hint) = self.kind_hint {
+            fields.push(crate::protobuf::ProtoField::varint(2, kind_hint));
+        }
+        if let Some(state_hint) = self.state_hint {
+            fields.push(crate::protobuf::ProtoField::varint(3, state_hint));
+        }
+        Ok(ProtoMessage::new(fields))
+    }
 }
 
 fn decode_archive_stream(bytes: &[u8]) -> Result<(IwaPacket, Vec<u8>), Error> {
@@ -428,4 +505,41 @@ fn copy_from_output(out: &mut Vec<u8>, offset: usize, len: usize) -> Result<(), 
     }
 
     Ok(())
+}
+
+fn compress_snappy_literal(bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut out = Vec::new();
+    let len = u64::try_from(bytes.len())
+        .map_err(|_| Error::InvalidIwa("snappy output length overflow"))?;
+    push_varint(&mut out, len);
+
+    let mut cursor = 0usize;
+    while cursor < bytes.len() {
+        let chunk_len = (bytes.len() - cursor).min(60);
+        out.push(((chunk_len - 1) << 2) as u8);
+        out.extend_from_slice(&bytes[cursor..cursor + chunk_len]);
+        cursor += chunk_len;
+    }
+
+    Ok(out)
+}
+
+fn encode_varint_bytes(value: u64) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_varint(&mut out, value);
+    out
+}
+
+fn push_varint(out: &mut Vec<u8>, mut value: u64) {
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
 }

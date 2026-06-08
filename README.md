@@ -6,8 +6,10 @@
 
 - opens iWork packages as ZIP containers
 - exposes package entries and raw entry bytes
+- can write stored ZIP packages and encode protobuf / IWA payloads
 - reads `Metadata/Properties.plist`
 - reads Numbers table cell values — text, numbers (decimal128), and dates
+- can build Numbers table archives from scratch for scalar cell data
 - inspects `Index/DocumentStylesheet.iwa` for simple keyword signals
 - extracts best-effort semantic content from Pages documents and Keynote decks
 
@@ -120,6 +122,13 @@ The Numbers reader currently follows a two-stage model:
 
 - `Spreadsheet::table_archives()` exposes the raw `Index/Tables/*.iwa` archives
 - `Spreadsheet::tables()` resolves those archives into decoded rows and [`CellValue`](src/numbers/table.rs) values
+
+The write-side Numbers support is currently lower level:
+
+- `numbers::Workbook` and `numbers::WritableTable` let you assemble table rows from scratch
+- `Workbook::encode_table_archives()` emits fresh `Tile` and string `DataList` archives for scalar cells
+- `Workbook::encode_scaffold_package()` emits a `.numbers` package from a bundled scaffold shell with a rewritten visible table
+- full `.numbers` package creation still needs a writer for the higher-level document/object graph
 
 The current parser relies on these reverse-engineered format details:
 

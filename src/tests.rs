@@ -1,6 +1,6 @@
 use crate::{
-    Document, DocumentKind, Error, IwaArchive, Package, PackageSupport, count_keywords, keynote,
-    numbers, pages,
+    Document, DocumentKind, Error, IwaArchive, Package, PackageSupport, PackageWriter,
+    ProtoField, ProtoMessage, count_keywords, keynote, numbers, pages,
 };
 
 const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
@@ -58,6 +58,46 @@ fn reads_deflated_zip_entries() -> Result<(), Error> {
     assert_eq!(entry.len(), 2_800);
     assert!(entry.starts_with(b"hello deflate\nhello deflate\n"));
     assert!(entry.ends_with(b"hello deflate\n"));
+
+    Ok(())
+}
+
+#[test]
+fn package_writer_round_trips_stored_entries() -> Result<(), Error> {
+    let mut writer = PackageWriter::new();
+    writer
+        .add_entry("Metadata/DocumentIdentifier", b"doc-123".to_vec())
+        .add_entry("Index/Metadata.iwa", b"bytes".to_vec());
+
+    let package = Package::from_bytes(writer.finish()?)?;
+    assert_eq!(package.entry_bytes("Metadata/DocumentIdentifier")?, b"doc-123");
+    assert_eq!(package.entry_bytes("Index/Metadata.iwa")?, b"bytes");
+
+    Ok(())
+}
+
+#[test]
+fn protobuf_messages_round_trip_through_encoder() -> Result<(), Error> {
+    let nested = ProtoMessage::new(vec![ProtoField::varint(1, 99)]);
+    let message = ProtoMessage::new(vec![
+        ProtoField::varint(1, 7),
+        ProtoField::fixed32(2, 1234),
+        ProtoField::fixed64(3, 5678),
+        ProtoField::string(4, "hello"),
+        ProtoField::message(5, nested)?,
+    ]);
+
+    let decoded = ProtoMessage::decode(&message.encode()?)?;
+    assert_eq!(decoded.field(1).and_then(|field| field.value.as_varint()), Some(7));
+    assert_eq!(decoded.field(4).and_then(|field| field.value.as_bytes()), Some(&b"hello"[..]));
+    assert_eq!(
+        decoded
+            .field(5)
+            .and_then(|field| field.value.as_message().ok())
+            .flatten()
+            .and_then(|nested| nested.field(1).and_then(|field| field.value.as_varint())),
+        Some(99)
+    );
 
     Ok(())
 }
