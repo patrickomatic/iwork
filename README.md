@@ -131,6 +131,13 @@ This is enough to extract stable content from the current `term_paper.pages` and
 `modern_novel.pages` fixtures, but it does not yet model Pages paragraphs,
 object graphs, or text runs precisely.
 
+Known gaps today:
+
+- some visible titles are split across archive fragments and may return `None`
+- text fragments can still include partial/template prose because the archive
+  interleaves content with formatting and layout bytes
+- this is read-only semantic extraction, not a structured Pages editing model
+
 App-specific entry points reject mismatched extensions:
 
 ```rust
