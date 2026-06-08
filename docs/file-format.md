@@ -239,7 +239,11 @@ col 10, row 3: [13 46 02 00 00 00 00 00 00 00 22 b0]
 - The `cb`, `9d` bytes have bit 7 set (varint continuation in LEB128). If bytes 0-N are a LEB128 varint and bytes 10-11 are a secondary field, the varint values are 12491, 3357, and 19 — all small integers, but their units are unknown.
 - **Alternative**: bytes 0-3 are a u32 LE value (90571, 39581, 74259) with bytes 10-11 as a secondary key.
 
-**Next steps**: Patterns A and D are resolved (formula-result cells, see above). For the remaining patterns B, C, and E, examine the DataList archives referenced by bytes 4-7 and 8-11 of these records. `DataList-1139369` (listType field1=9, 1616 bytes — the largest non-string, non-formula archive) is the prime suspect for carrying the wide values seen in Pattern B; its encoding is not yet decoded.
+**Next steps**: Patterns A and D are resolved (formula-result cells, see above). Patterns B, C, and E remain open.
+
+`DataList-1139369` was investigated and ruled out as a value store: despite being the largest non-string archive (1616 bytes), its listType (field 1) = `9` and it holds only **2 entries**, each an object-ID *reference* (field 4 → sub-message field 1 = `1139438`, `1139491`) rather than a per-cell value. A 30-row table cannot draw its values from a 2-entry list, so listType=9 is a reference list (merged cells / conditional formats / similar), not numeric data.
+
+That points the remaining patterns back to **inline encodings inside the 12-byte cell record**. Pattern B (`col 6: 01 52 00 00 00 | 78 86 2b 86 17 01 00`) has a constant 5-byte prefix and a varying 7-byte tail — the value is almost certainly in that tail, but it is not a plain f64/u32. Decoding it likely requires understanding byte 0 as a flags/type tag and the trailing bytes as a packed/scaled integer. (See the `investigate_datalist_1139369` scratch test.)
 
 ## Write Behavior
 

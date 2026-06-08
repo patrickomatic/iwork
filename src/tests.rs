@@ -729,6 +729,133 @@ fn investigate_unknown_cell_types_in_my_stocks() -> Result<(), Error> {
     Ok(())
 }
 
+#[test]
+fn investigate_datalist_1139369() -> Result<(), Error> {
+    use crate::protobuf::{ProtoMessage, ProtoValue, read_varint};
+    const MY_STOCKS: &str = "examples/numbers/my_stocks.numbers";
+    let doc = numbers::Document::open(MY_STOCKS)?;
+    let spreadsheet = doc.spreadsheet()?;
+
+    let describe = |v: &ProtoValue| -> String {
+        match v {
+            ProtoValue::Varint(x) => format!("varint {x}"),
+            ProtoValue::Fixed32(x) => format!("f32 {} (0x{x:08x})", f32::from_bits(*x)),
+            ProtoValue::Fixed64(x) => format!("f64 {} (0x{x:016x})", f64::from_bits(*x)),
+            ProtoValue::LengthDelimited(b) => {
+                let hex: Vec<String> = b.iter().take(24).map(|x| format!("{x:02x}")).collect();
+                format!("bytes[{}] = {}", b.len(), hex.join(" "))
+            }
+        }
+    };
+
+    for target in ["DataList-1139369", "DataList-1139359"] {
+        let Some(archive) = spreadsheet
+            .table_archives()
+            .iter()
+            .find(|a| a.path().contains(target))
+        else { continue };
+        let body = archive.archive().body();
+        println!("\n=== {target} (body_len={}) ===", body.len());
+
+        // Top-level fields of the DataList message.
+        let mut probe = 0usize;
+        let t1 = read_varint(body, &mut probe).unwrap_or(0);
+        let v1 = read_varint(body, &mut probe).unwrap_or(0);
+        let t2 = read_varint(body, &mut probe).unwrap_or(0);
+        let v2 = read_varint(body, &mut probe).unwrap_or(0);
+        println!("  listType(field1)={v1} field2={v2}  (tags {t1:#x},{t2:#x})");
+
+        // Walk field-3 entries and dump each entry's sub-fields.
+        let mut cursor = 0usize;
+        let mut shown = 0;
+        while cursor < body.len() && shown < 8 {
+            let Ok(tag) = read_varint(body, &mut cursor) else { break };
+            let wire = tag & 7;
+            let field = tag >> 3;
+            if wire != 2 {
+                match wire {
+                    0 => { let _ = read_varint(body, &mut cursor); }
+                    1 => cursor += 8,
+                    5 => cursor += 4,
+                    _ => break,
+                }
+                continue;
+            }
+            let Ok(lv) = read_varint(body, &mut cursor) else { break };
+            let Ok(len) = usize::try_from(lv) else { break };
+            let Some(chunk) = body.get(cursor..cursor + len) else { break };
+            cursor += len;
+            if field != 3 { continue; }
+            let Ok(entry) = ProtoMessage::decode(chunk) else { continue };
+            let key = entry.field(1).and_then(|f| f.value.as_varint()).unwrap_or(0);
+            println!("  entry key={key} fields={:?}", entry.fields().iter().map(|f| f.number).collect::<Vec<_>>());
+            for f in entry.fields() {
+                println!("    f{} = {}", f.number, describe(&f.value));
+                // Recurse one level into length-delimited sub-messages.
+                if let ProtoValue::LengthDelimited(b) = &f.value {
+                    if let Ok(sub) = ProtoMessage::decode(b) {
+                        for sf in sub.fields() {
+                            println!("        .f{} = {}", sf.number, describe(&sf.value));
+                        }
+                    }
+                }
+            }
+            shown += 1;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn investigate_tile_f6_gap() -> Result<(), Error> {
+    use crate::protobuf::{ProtoMessage, read_varint};
+    const MY_STOCKS: &str = "examples/numbers/my_stocks.numbers";
+    let doc = numbers::Document::open(MY_STOCKS)?;
+    let spreadsheet = doc.spreadsheet()?;
+
+    // For tile 1139370 (the large time-series table) dump, for the first few data
+    // rows, every 8-byte window in f6 that decodes to a "reasonable" finite f64.
+    // A value column shows up as the SAME offset producing finite f64s every row.
+    for tile_name in ["Tile-1139365", "Tile-1139370"] {
+        let Some(archive) = spreadsheet.table_archives().iter().find(|a| a.path().contains(tile_name))
+        else { continue };
+        let tile = archive.archive();
+        let body = tile.body();
+        let mut cursor = tile.leading_object_references_len();
+        let mut shown = 0;
+        println!("\n=== {tile_name}: finite-f64 offsets in f6 per row ===");
+        while cursor < body.len() && shown < 4 {
+            let Ok(tag) = read_varint(body, &mut cursor) else { break };
+            if tag & 7 != 2 {
+                match tag & 7 { 0 => { let _ = read_varint(body, &mut cursor); }, 1 => cursor += 8, 5 => cursor += 4, _ => break }
+                continue;
+            }
+            let Ok(lv) = read_varint(body, &mut cursor) else { break };
+            let Ok(len) = usize::try_from(lv) else { break };
+            let Some(chunk) = body.get(cursor..cursor + len) else { break };
+            cursor += len;
+            let Ok(msg) = ProtoMessage::decode(chunk) else { continue };
+            if msg.fields().is_empty() { continue; }
+            let row = msg.field(1).and_then(|f| f.value.as_varint()).unwrap_or(0);
+            if row == 0 { continue; }
+            let f6 = msg.field(6).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
+            let mut hits = Vec::new();
+            for off in 0..f6.len().saturating_sub(8) {
+                let v = f64::from_le_bytes(f6[off..off + 8].try_into().unwrap_or([0; 8]));
+                if v.is_finite() && v != 0.0 && v.abs() > 1e-6 && v.abs() < 1e12 {
+                    hits.push((off, v));
+                }
+            }
+            println!("  row={row} f6_len={} finite_f64_hits={}", f6.len(), hits.len());
+            for (off, v) in hits.iter().take(12) {
+                println!("    off={off:3} -> {v}");
+            }
+            shown += 1;
+        }
+    }
+    Ok(())
+}
+
 fn unique_output_path(input_path: &str) -> PathBuf {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
