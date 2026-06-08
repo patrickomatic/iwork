@@ -309,6 +309,50 @@ fn keynote_presentation_exposes_core_archives() -> Result<(), Error> {
 }
 
 #[test]
+fn keynote_semantic_presentation_extracts_slide_content() -> Result<(), Error> {
+    let basic = keynote::Document::open(BASIC_WHITE_EXAMPLE)?.semantic_presentation()?;
+    assert!(basic.slides().iter().any(|slide| slide.is_template()));
+    assert!(
+        basic
+            .slides()
+            .iter()
+            .any(|slide| slide.title() == Some("Slide Title")),
+    );
+    assert!(basic.slides().iter().any(|slide| {
+        slide
+            .text_fragments()
+            .iter()
+            .any(|text| text == "Presentation Subtitle")
+    }),);
+
+    let blueprint =
+        keynote::Document::open("examples/keynote/blueprint.key")?.semantic_presentation()?;
+    assert!(blueprint.slides().iter().any(|slide| {
+        slide
+            .media_descriptions()
+            .iter()
+            .any(|text| text.contains("Front of a modern house lit up at night"))
+    }));
+    assert!(
+        blueprint
+            .slides()
+            .iter()
+            .any(|slide| { slide.text_fragments().iter().any(|text| text == "Client") })
+    );
+
+    let parchment =
+        keynote::Document::open("examples/keynote/parchment.key")?.semantic_presentation()?;
+    assert!(parchment.slides().iter().any(|slide| {
+        slide
+            .media_descriptions()
+            .iter()
+            .any(|text| text.contains("Pyramids of Giza silhouetted against an orange sunset"))
+    }));
+
+    Ok(())
+}
+
+#[test]
 fn stylesheet_payload_bold_and_italic_are_structural() -> Result<(), Error> {
     // term_paper.pages has Charter-Bold and Charter-Italic styles which carry field 1/2
     // explicitly in the payload — verify they surface as structural attributes, not heuristics.

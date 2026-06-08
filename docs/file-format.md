@@ -206,6 +206,37 @@ Current known limitations:
 - the parser does not yet reconstruct paragraph boundaries, text-run styling,
   or anchored object placement
 
+## Keynote Semantic Slide Extraction
+
+Keynote slide content in the current fixtures is often easier to recover from
+individual `Slide*.iwa` and `TemplateSlide*.iwa` archives than from the top-level
+document archive. The current semantic parser therefore works slide-by-slide:
+
+- it decodes each slide-related archive under `Index/`
+- it extracts printable strings from the archive body
+- it filters out known locale, transition, UUID, and formatting noise
+- it classifies layout names, placeholder titles, and media descriptions
+
+This powers `keynote::Document::semantic_presentation()`, which returns a list
+of semantic slides containing:
+
+- the source archive path
+- whether the archive is a template slide
+- an optional layout name
+- an optional title / placeholder title
+- ordered text fragments
+- media descriptions recovered from slide assets
+
+Current known limitations:
+
+- slide ordering is based on archive-path sorting rather than a fully decoded
+  presentation graph
+- template and live slides are both surfaced because both contain meaningful
+  text in the current fixtures
+- presenter notes, animations, and exact on-slide object structure are not yet parsed
+- some recovered text still reflects placeholder/template phrasing rather than
+  finalized authored content
+
 ## Write Behavior
 
 Current write support is package-preserving, not format-rewriting.
