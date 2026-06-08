@@ -31,7 +31,7 @@ pub use error::Error;
 pub use inspect::{InspectionReport, count_keywords};
 pub use iwa::{IwaArchive, IwaArchiveDescriptor, IwaChunk, IwaObjectReference, IwaPacket};
 pub use kind::DocumentKind;
-pub use package::{Entry, Package};
+pub use package::{Entry, Package, PackageSupport};
 pub use plist::PropertiesPlist;
 pub use protobuf::{ProtoField, ProtoMessage, ProtoValue};
 pub use stylesheet::{OrderedF32, StyleAttributes, StyleRecord, StylesheetCatalog};

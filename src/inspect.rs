@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 
-use crate::{DocumentKind, PropertiesPlist};
+use crate::{DocumentKind, PackageSupport, PropertiesPlist};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InspectionReport {
     pub path: String,
     pub kind: DocumentKind,
+    pub support: PackageSupport,
     pub properties: PropertiesPlist,
     pub entry_count: usize,
     pub iwa_count: usize,

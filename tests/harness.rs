@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use iwork::{Document, DocumentKind, Error, keynote, numbers, pages};
+use iwork::{Document, DocumentKind, Error, PackageSupport, keynote, numbers, pages};
 
 const NUMBERS_EXAMPLES: &[&str] = &[
     "examples/numbers/my_stocks.numbers",
@@ -32,6 +32,11 @@ fn every_example_opens_and_exposes_core_metadata() -> Result<(), Error> {
 
         assert!(report.entry_count > 0, "{path} should not be empty");
         assert!(report.iwa_count > 0, "{path} should contain iwa payloads");
+        assert_eq!(
+            report.support,
+            PackageSupport::SupportedDirectIndexEntries,
+            "{path} should use the supported direct Index/ layout"
+        );
         assert!(
             report.properties.document_uuid.is_some(),
             "{path} should expose a document uuid"
