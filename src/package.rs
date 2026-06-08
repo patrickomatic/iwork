@@ -45,6 +45,19 @@ pub struct Package {
     entries: Vec<Entry>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageSupport {
+    SupportedDirectIndexEntries,
+    UnsupportedLegacyIndexZip,
+    UnsupportedUnknownLayout,
+}
+
+impl Default for PackageSupport {
+    fn default() -> Self {
+        Self::UnsupportedUnknownLayout
+    }
+}
+
 impl Package {
     /// Reads an iWork package from disk.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
@@ -119,6 +132,25 @@ impl Package {
         &self.entries
     }
 
+    /// Classifies the package layout against the variants this crate
+    /// currently recognizes.
+    pub fn support(&self) -> PackageSupport {
+        let has_direct_index_entries = self
+            .entries
+            .iter()
+            .any(|entry| entry.path.starts_with("Index/"));
+        if has_direct_index_entries {
+            return PackageSupport::SupportedDirectIndexEntries;
+        }
+
+        let has_legacy_index_zip = self.entries.iter().any(|entry| entry.path == "Index.zip");
+        if has_legacy_index_zip {
+            return PackageSupport::UnsupportedLegacyIndexZip;
+        }
+
+        PackageSupport::UnsupportedUnknownLayout
+    }
+
     /// Returns the raw bytes for a package entry.
     ///
     /// This reader currently supports only stored ZIP members
@@ -181,6 +213,7 @@ impl Package {
         Ok(InspectionReport {
             kind: DocumentKind::from_path(&path),
             path,
+            support: self.support(),
             properties,
             entry_count: self.entries.len(),
             iwa_count: self

@@ -6,6 +6,18 @@ This document records the file-format assumptions the crate currently depends on
 
 All supported iWork documents in this repository are ZIP archives.
 
+The crate currently recognizes these package-layout variants:
+
+- `SupportedDirectIndexEntries`:
+  ZIP archive with document members directly under `Index/...`
+- `UnsupportedLegacyIndexZip`:
+  legacy-style package containing `Index.zip`
+- `UnsupportedUnknownLayout`:
+  ZIP archive that does not match either known layout
+
+Only `SupportedDirectIndexEntries` is currently supported by the reader APIs
+and test fixtures in this repository.
+
 The crate currently relies on these ZIP-level properties:
 
 - the file starts with a local file header signature `0x04034B50`

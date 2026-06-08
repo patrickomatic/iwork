@@ -1,5 +1,6 @@
 use crate::{
-    Document, DocumentKind, Error, IwaArchive, Package, count_keywords, keynote, numbers, pages,
+    Document, DocumentKind, Error, IwaArchive, Package, PackageSupport, count_keywords, keynote,
+    numbers, pages,
 };
 
 const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
@@ -18,6 +19,7 @@ fn parses_a_fixture_archive() -> Result<(), Error> {
     let package = Package::open(PERSONAL_BUDGET_EXAMPLE)?;
     let properties = package.properties()?;
 
+    assert_eq!(package.support(), PackageSupport::SupportedDirectIndexEntries);
     assert_eq!(properties.file_format_version.as_deref(), Some("14.4.1"));
     assert_eq!(properties.is_multi_page, Some(true));
     assert!(
@@ -40,6 +42,10 @@ fn app_specific_entry_points_share_the_core_package_reader() -> Result<(), Error
     assert_eq!(
         iwork_doc.inspect(PERSONAL_BUDGET_EXAMPLE)?.kind,
         DocumentKind::Numbers
+    );
+    assert_eq!(
+        iwork_doc.inspect(PERSONAL_BUDGET_EXAMPLE)?.support,
+        PackageSupport::SupportedDirectIndexEntries
     );
     assert_eq!(
         numbers_doc.inspect(PERSONAL_BUDGET_EXAMPLE)?.kind,
