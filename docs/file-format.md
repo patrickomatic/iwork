@@ -99,6 +99,10 @@ After decompression, the archive byte stream begins with a length-prefixed heade
 
 The body is a stream of length-delimited protobuf messages. The body often starts with a run of "leading object reference" messages (field 1, wire type 2, containing inner field 1 = varint object ID). These are read by `IwaArchive::leading_object_references()`.
 
+### Writing IWA archives
+
+`IwaArchive::encode(header, body)` reverses the decode path: it length-prefixes the header packet, appends the body, and emits the result as Snappy chunks. Each chunk holds at most 64 KiB of decompressed bytes (the window real iWork writers use), and the payload is encoded as Snappy literal runs only (no back-references), which is valid Snappy that any reader can decompress. `IwaArchive::reencode()` round-trips a decoded archive losslessly: a reader observes the same header packet and body bytes (only the Snappy framing may differ). This re-encode reproduces every `.iwa` archive in the example documents.
+
 ## Stylesheet IWA Format (DocumentStylesheet.iwa)
 
 After the leading object references, each message in the body is a style record with:
