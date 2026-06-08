@@ -13,8 +13,9 @@
 //! - only standard EOCD / central-directory / local-file-header records are
 //!   supported
 //! - entry names are expected to be UTF-8
-//! - `entry_bytes` only supports stored entries with compression method `0`
+//! - `entry_bytes` supports stored (`0`) and deflated (`8`) ZIP members
 
+use std::cell::OnceCell;
 use std::fs;
 use std::path::Path;
 
@@ -25,6 +26,8 @@ use crate::{DocumentKind, Error};
 const EOCD_SIGNATURE: u32 = 0x0605_4B50;
 const CENTRAL_DIRECTORY_SIGNATURE: u32 = 0x0201_4B50;
 const LOCAL_FILE_SIGNATURE: u32 = 0x0403_4B50;
+const STORED_COMPRESSION_METHOD: u16 = 0;
+const DEFLATE_COMPRESSION_METHOD: u16 = 8;
 
 #[derive(Debug, Clone)]
 pub struct Entry {
@@ -37,6 +40,7 @@ pub struct Entry {
     /// Uncompressed size recorded for the entry.
     pub uncompressed_size: u32,
     local_header_offset: u32,
+    inflated_bytes: OnceCell<Result<Box<[u8]>, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -116,6 +120,7 @@ impl Package {
                 compressed_size,
                 uncompressed_size,
                 local_header_offset,
+                inflated_bytes: OnceCell::new(),
             });
 
             cursor = name_end
@@ -153,21 +158,14 @@ impl Package {
 
     /// Returns the raw bytes for a package entry.
     ///
-    /// This reader currently supports only stored ZIP members
-    /// (`compression_method == 0`).
+    /// This reader currently supports stored (`compression_method == 0`) and
+    /// deflated (`compression_method == 8`) ZIP members.
     pub fn entry_bytes(&self, path: &str) -> Result<&[u8], Error> {
         let entry = self
             .entries
             .iter()
             .find(|entry| entry.path == path)
             .ok_or_else(|| Error::MissingEntry(path.to_owned()))?;
-
-        if entry.compression_method != 0 {
-            return Err(Error::UnsupportedCompression {
-                path: entry.path.clone(),
-                method: entry.compression_method,
-            });
-        }
 
         let offset = entry.local_header_offset as usize;
         if read_u32(&self.bytes, offset)? != LOCAL_FILE_SIGNATURE {
@@ -185,9 +183,29 @@ impl Package {
             .checked_add(entry.compressed_size as usize)
             .ok_or(Error::InvalidLocalFileHeader)?;
 
-        self.bytes
+        let data = self
+            .bytes
             .get(data_start..data_end)
-            .ok_or(Error::Truncated("file contents"))
+            .ok_or(Error::Truncated("file contents"))?;
+
+        match entry.compression_method {
+            STORED_COMPRESSION_METHOD => Ok(data),
+            DEFLATE_COMPRESSION_METHOD => {
+                let inflated = entry.inflated_bytes.get_or_init(|| {
+                    inflate_raw(data, entry.uncompressed_size as usize)
+                        .map(Vec::into_boxed_slice)
+                        .map_err(|()| entry.path.clone())
+                });
+                inflated
+                    .as_ref()
+                    .map(Box::as_ref)
+                    .map_err(|path| Error::InvalidCompressedEntry { path: path.clone() })
+            }
+            method => Err(Error::UnsupportedCompression {
+                path: entry.path.clone(),
+                method,
+            }),
+        }
     }
 
     /// Reads and parses `Metadata/Properties.plist`.
@@ -251,4 +269,76 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, Error> {
         .get(offset..offset + 4)
         .ok_or(Error::Truncated("u32"))?;
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+fn inflate_raw(bytes: &[u8], expected_len: usize) -> Result<Vec<u8>, ()> {
+    let mut output = vec![0u8; expected_len];
+    let mut stream = ZStream::default();
+    stream.next_in = bytes.as_ptr();
+    stream.avail_in = u32::try_from(bytes.len()).map_err(|_| ())?;
+    stream.next_out = output.as_mut_ptr();
+    stream.avail_out = u32::try_from(output.len()).map_err(|_| ())?;
+
+    let init_code = unsafe {
+        inflateInit2_(
+            &mut stream,
+            -MAX_WBITS,
+            zlibVersion(),
+            i32::try_from(std::mem::size_of::<ZStream>()).map_err(|_| ())?,
+        )
+    };
+    if init_code != Z_OK {
+        return Err(());
+    }
+
+    let inflate_code = unsafe { inflate(&mut stream, Z_FINISH) };
+    let end_code = unsafe { inflateEnd(&mut stream) };
+
+    if inflate_code != Z_STREAM_END || end_code != Z_OK {
+        return Err(());
+    }
+
+    let written = usize::try_from(stream.total_out).map_err(|_| ())?;
+    if written != expected_len {
+        return Err(());
+    }
+    output.truncate(written);
+    Ok(output)
+}
+
+const Z_OK: i32 = 0;
+const Z_STREAM_END: i32 = 1;
+const Z_FINISH: i32 = 4;
+const MAX_WBITS: i32 = 15;
+
+#[repr(C)]
+#[derive(Default)]
+struct ZStream {
+    next_in: *const u8,
+    avail_in: u32,
+    total_in: u64,
+    next_out: *mut u8,
+    avail_out: u32,
+    total_out: u64,
+    msg: *const i8,
+    state: *mut std::ffi::c_void,
+    zalloc: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32, u32) -> *mut std::ffi::c_void>,
+    zfree: Option<unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void)>,
+    opaque: *mut std::ffi::c_void,
+    data_type: i32,
+    adler: u64,
+    reserved: u64,
+}
+
+#[link(name = "z")]
+unsafe extern "C" {
+    fn zlibVersion() -> *const i8;
+    fn inflateInit2_(
+        strm: *mut ZStream,
+        window_bits: i32,
+        version: *const i8,
+        stream_size: i32,
+    ) -> i32;
+    fn inflate(strm: *mut ZStream, flush: i32) -> i32;
+    fn inflateEnd(strm: *mut ZStream) -> i32;
 }

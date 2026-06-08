@@ -10,6 +10,7 @@ pub enum Error {
     InvalidCentralDirectory,
     InvalidLocalFileHeader,
     UnsupportedCompression { path: String, method: u16 },
+    InvalidCompressedEntry { path: String },
     MissingEntry(String),
     InvalidUtf8(std::string::FromUtf8Error),
     InvalidPlist(&'static str),
@@ -38,6 +39,9 @@ impl fmt::Display for Error {
                     f,
                     "entry {path} uses unsupported compression method {method}"
                 )
+            }
+            Self::InvalidCompressedEntry { path } => {
+                write!(f, "entry {path} could not be decompressed")
             }
             Self::MissingEntry(path) => write!(f, "missing entry: {path}"),
             Self::InvalidUtf8(error) => write!(f, "invalid UTF-8: {error}"),
