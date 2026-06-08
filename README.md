@@ -7,6 +7,7 @@
 - opens iWork packages as ZIP containers
 - exposes package entries and raw entry bytes
 - reads `Metadata/Properties.plist`
+- reads Numbers table cell values — text, numbers (decimal128), and dates
 - inspects `Index/DocumentStylesheet.iwa` for simple keyword signals
 - preserves the original bytes on write for round-trip workflows
 
@@ -50,6 +51,31 @@ fn main() -> Result<(), iwork::Error> {
         .entry_bytes("Index/DocumentStylesheet.iwa")?;
 
     println!("stylesheet bytes: {}", stylesheet.len());
+    Ok(())
+}
+```
+
+Read cell values from a Numbers spreadsheet:
+
+```rust
+use iwork::numbers::{self, CellValue};
+
+fn main() -> Result<(), iwork::Error> {
+    let document = numbers::Document::open("examples/numbers/my_stocks.numbers")?;
+
+    for table in document.spreadsheet()?.tables() {
+        for row in table.rows() {
+            for cell in &row.cells {
+                match cell {
+                    CellValue::Text(s) => println!("text:   {s}"),
+                    CellValue::Number(n) => println!("number: {n}"),
+                    CellValue::Date(secs) => println!("date:   {secs} s since 2001-01-01"),
+                    CellValue::Empty => {}
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 ```
