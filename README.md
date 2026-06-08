@@ -80,6 +80,22 @@ fn main() -> Result<(), iwork::Error> {
 }
 ```
 
+Extract semantic text from a Pages document:
+
+```rust
+use iwork::pages;
+
+fn main() -> Result<(), iwork::Error> {
+    let document = pages::Document::open("examples/pages/term_paper.pages")?;
+    let semantic = document.semantic_document()?;
+
+    println!("title: {:?}", semantic.title());
+    println!("headings: {:?}", semantic.headings());
+    println!("first fragments: {:?}", &semantic.text_fragments()[..3.min(semantic.text_fragments().len())]);
+    Ok(())
+}
+```
+
 ## Numbers Parsing Notes
 
 The Numbers reader currently follows a two-stage model:
@@ -101,6 +117,19 @@ The test suite covers both low-level decoder branches and fixture-backed example
 - decimal128 numeric values from `my_stocks.numbers`
 - Cocoa-epoch date cells from the Numbers fixtures
 - row decoding behavior around column counts, sentinels, and truncated records
+
+## Pages Semantic Parsing Notes
+
+The Pages semantic layer is currently best-effort rather than fully structural.
+It scans `Index/Document.iwa` for high-confidence user-facing text and returns:
+
+- an optional title when a strong title candidate is present
+- normalized headings such as `Prologue`, `Subheading`, or `Chapter 1`
+- ordered text fragments that preserve recoverable document prose
+
+This is enough to extract stable content from the current `term_paper.pages` and
+`modern_novel.pages` fixtures, but it does not yet model Pages paragraphs,
+object graphs, or text runs precisely.
 
 App-specific entry points reject mismatched extensions:
 

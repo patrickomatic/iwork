@@ -176,6 +176,27 @@ The fixture-backed tests intentionally assert real header rows and representativ
 `personal_budget.numbers`, `pivot_table.numbers`, and `my_stocks.numbers` so changes to the
 reverse-engineered row layout fail loudly.
 
+## Pages Semantic Text Extraction
+
+Pages documents in this repository do not currently expose their prose as clean,
+typed protobuf string fields the way Numbers tables expose cells. The current
+Pages semantic parser therefore takes a more conservative approach:
+
+- it reads raw `Index/Document.iwa` bytes from the package
+- it extracts printable string runs
+- it filters out known locale, formatting, stylesheet, and UUID noise
+- it normalizes high-confidence headings such as `Chapter N`
+
+This powers `pages::Document::semantic_document()`, which returns:
+
+- an optional title when a strong multi-word title candidate is present
+- normalized headings (`Prologue`, `Subheading`, `Chapter 1`, ...)
+- ordered text fragments recovered from the document archive
+
+This is intentionally a **best-effort semantic layer**, not a complete model of
+Pages paragraphs, text runs, or anchored objects. The fixture coverage asserts
+recoverable content from `modern_novel.pages` and `term_paper.pages`.
+
 ## Write Behavior
 
 Current write support is package-preserving, not format-rewriting.

@@ -247,6 +247,48 @@ fn pages_document_model_exposes_core_archives() -> Result<(), Error> {
 }
 
 #[test]
+fn pages_semantic_document_extracts_fixture_text() -> Result<(), Error> {
+    let modern = pages::Document::open(MODERN_NOVEL_EXAMPLE)?.semantic_document()?;
+    assert_eq!(modern.title(), None);
+    assert!(
+        modern
+            .headings()
+            .iter()
+            .any(|heading| heading == "Prologue")
+    );
+    assert!(
+        modern
+            .headings()
+            .iter()
+            .any(|heading| heading == "Chapter 1")
+    );
+    assert!(
+        modern
+            .text_fragments()
+            .iter()
+            .any(|fragment| fragment == "of the Night Sky"),
+    );
+
+    let term_paper =
+        pages::Document::open("examples/pages/term_paper.pages")?.semantic_document()?;
+    assert_eq!(term_paper.title(), Some("Geology 101 Report"));
+    assert!(
+        term_paper
+            .headings()
+            .iter()
+            .any(|heading| heading == "Subheading"),
+    );
+    assert!(
+        term_paper
+            .text_fragments()
+            .iter()
+            .any(|fragment| fragment == "Fall 2023"),
+    );
+
+    Ok(())
+}
+
+#[test]
 fn keynote_presentation_exposes_core_archives() -> Result<(), Error> {
     let document = keynote::Document::open(BASIC_WHITE_EXAMPLE)?;
     let presentation = document.presentation()?;
