@@ -730,6 +730,66 @@ fn investigate_unknown_cell_types_in_my_stocks() -> Result<(), Error> {
 }
 
 #[test]
+fn investigate_f7_offsets_vs_f4() -> Result<(), Error> {
+    use crate::protobuf::{ProtoMessage, read_varint};
+    const MY_STOCKS: &str = "examples/numbers/my_stocks.numbers";
+    let doc = numbers::Document::open(MY_STOCKS)?;
+    let spreadsheet = doc.spreadsheet()?;
+
+    // Hypothesis: f7 is the *current* cell-offset array into f6 (variable-length
+    // records); f4 is the legacy fixed-12-byte offset array. Compare them and
+    // dump the f6 record at each f7 offset (up to the next offset) for row 1.
+    for tile_name in ["Tile-1139365", "Tile-1139370"] {
+        let Some(archive) = spreadsheet.table_archives().iter().find(|a| a.path().contains(tile_name))
+        else { continue };
+        let tile = archive.archive();
+        let body = tile.body();
+        let mut cursor = tile.leading_object_references_len();
+        let mut shown = 0;
+        println!("\n=== {tile_name} ===");
+        while cursor < body.len() && shown < 3 {
+            let Ok(tag) = read_varint(body, &mut cursor) else { break };
+            if tag & 7 != 2 {
+                match tag & 7 { 0 => { let _ = read_varint(body, &mut cursor); }, 1 => cursor += 8, 5 => cursor += 4, _ => break }
+                continue;
+            }
+            let Ok(lv) = read_varint(body, &mut cursor) else { break };
+            let Ok(len) = usize::try_from(lv) else { break };
+            let Some(chunk) = body.get(cursor..cursor + len) else { break };
+            cursor += len;
+            let Ok(msg) = ProtoMessage::decode(chunk) else { continue };
+            if msg.fields().is_empty() { continue; }
+            let row = msg.field(1).and_then(|f| f.value.as_varint()).unwrap_or(0);
+            if row != 1 { continue; }
+            let f4 = msg.field(4).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
+            let f6 = msg.field(6).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
+            let f7 = msg.field(7).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
+
+            let offs = |arr: &[u8]| -> Vec<usize> {
+                arr.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]]))
+                    .take_while(|&v| v != 0xffff).map(|v| v as usize).collect()
+            };
+            let f4o = offs(f4);
+            let f7o = offs(f7);
+            println!("  row=1 f6_len={} f4_offsets={f4o:?}", f6.len());
+            println!("  row=1 f7_offsets={f7o:?}");
+            // Dump f6 record per f7 offset (slice up to next offset).
+            let mut sorted = f7o.clone();
+            sorted.sort_unstable();
+            sorted.dedup();
+            for w in sorted.windows(2) {
+                let (a, b) = (w[0], w[1]);
+                let rec = f6.get(a..b).unwrap_or(&[]);
+                let hex: Vec<String> = rec.iter().map(|x| format!("{x:02x}")).collect();
+                println!("    f7off {a:3}..{b:3} ({:2}B) = {}", b - a, hex.join(" "));
+            }
+            shown += 1;
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn investigate_datalist_1139369() -> Result<(), Error> {
     use crate::protobuf::{ProtoMessage, ProtoValue, read_varint};
     const MY_STOCKS: &str = "examples/numbers/my_stocks.numbers";

@@ -130,9 +130,20 @@ Tile archives store cell data in a stream of row messages in the body. Each row 
 
 ### Field 6 Layout
 
-Field 6 is a flat byte buffer. Offsets in field 4 and field 7 index into it. Offsets are NOT necessarily 12-byte aligned — field 7 offsets can overlap with cell records.
+Field 6 is a flat byte buffer holding the cell records for a row.
 
-**Primary cell records** (at field 4 offsets, 12 bytes each):
+**Correct offset array: field 7, not field 4** *(structurally grounded — verified across Tile-1139365 and Tile-1139370 in `my_stocks.numbers`)*. The `TileRowInfo` message carries two parallel encodings:
+
+- **field 3 + field 4** — the *legacy* `_pre_bnc` buffer and its u16 offset array. The offsets are a fixed 12-byte stride (`[0, 12, 24, …]`).
+- **field 6 + field 7** — the *current* buffer and its u16 offset array. These records are **variable length** (observed 24–44 bytes) and each begins with the **version byte `0x05`**.
+
+Example (Tile-1139365, row 1): `f4_offsets = [0, 12, 24, 36, …]` (fixed 12) vs `f7_offsets = [0, 32, 64, 104, 144, 184, 220, 264, …]` (variable). Slicing f6 at the f7 boundaries yields clean records that all start with `05`; slicing at f4 offsets lands in the middle of records after the first.
+
+> **Bug in current `table.rs`:** `decode_cells` reads cell offsets from **field 4** but indexes into **field 6**. Only the first cell (offset 0, where both arrays agree) is reliably aligned; every later cell is read from a misaligned 12-byte window. Some text/date/formula values still decoded because the misaligned bytes happened to land on plausible values — a data-inferred coincidence, not a structural guarantee. **Fix:** use field 7 offsets and parse variable-length records delimited by consecutive offsets, keyed off the `0x05` version byte.
+
+The variable-length record body (after `0x05` version + type byte) is not yet fully decoded; type `0x0a` records carry a wide value in their tail whose encoding is still unknown (not a plain f64/u32).
+
+**Legacy 12-byte record interpretation** (field 4 offsets — superseded by the above, kept for reference):
 
 | Byte(s) | Type 0x05 (style) | Type 0x03 (string) | Type 0x00 byte2=0x00 (date) | Type 0x00 byte2=0x80 (number) |
 |---------|-------------------|--------------------|-----------------------------|-------------------------------|
