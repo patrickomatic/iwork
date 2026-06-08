@@ -49,6 +49,17 @@ pub struct Package {
     entries: Vec<Entry>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct PackageWriter {
+    entries: Vec<PackageEntryWriter>,
+}
+
+#[derive(Debug, Clone)]
+struct PackageEntryWriter {
+    path: String,
+    contents: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PackageSupport {
     SupportedDirectIndexEntries,
@@ -248,6 +259,105 @@ impl Package {
     }
 }
 
+impl PackageWriter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_entry(
+        &mut self,
+        path: impl Into<String>,
+        contents: impl Into<Vec<u8>>,
+    ) -> &mut Self {
+        self.entries.push(PackageEntryWriter {
+            path: path.into(),
+            contents: contents.into(),
+        });
+        self
+    }
+
+    pub fn finish(&self) -> Result<Vec<u8>, Error> {
+        let mut out = Vec::new();
+        let mut central_directory = Vec::new();
+        let mut offsets = Vec::with_capacity(self.entries.len());
+
+        for entry in &self.entries {
+            let local_header_offset = u32::try_from(out.len())
+                .map_err(|_| Error::InvalidCentralDirectory)?;
+            offsets.push(local_header_offset);
+
+            let path_bytes = entry.path.as_bytes();
+            let crc32 = crc32(&entry.contents);
+            let size = u32::try_from(entry.contents.len())
+                .map_err(|_| Error::InvalidCentralDirectory)?;
+            let path_len = u16::try_from(path_bytes.len())
+                .map_err(|_| Error::InvalidCentralDirectory)?;
+
+            out.extend_from_slice(&LOCAL_FILE_SIGNATURE.to_le_bytes());
+            out.extend_from_slice(&20u16.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&STORED_COMPRESSION_METHOD.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&crc32.to_le_bytes());
+            out.extend_from_slice(&size.to_le_bytes());
+            out.extend_from_slice(&size.to_le_bytes());
+            out.extend_from_slice(&path_len.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(path_bytes);
+            out.extend_from_slice(&entry.contents);
+        }
+
+        let central_directory_offset = u32::try_from(out.len())
+            .map_err(|_| Error::InvalidCentralDirectory)?;
+
+        for (entry, offset) in self.entries.iter().zip(offsets) {
+            let path_bytes = entry.path.as_bytes();
+            let crc32 = crc32(&entry.contents);
+            let size = u32::try_from(entry.contents.len())
+                .map_err(|_| Error::InvalidCentralDirectory)?;
+            let path_len = u16::try_from(path_bytes.len())
+                .map_err(|_| Error::InvalidCentralDirectory)?;
+
+            central_directory.extend_from_slice(&CENTRAL_DIRECTORY_SIGNATURE.to_le_bytes());
+            central_directory.extend_from_slice(&20u16.to_le_bytes());
+            central_directory.extend_from_slice(&20u16.to_le_bytes());
+            central_directory.extend_from_slice(&0u16.to_le_bytes());
+            central_directory.extend_from_slice(&STORED_COMPRESSION_METHOD.to_le_bytes());
+            central_directory.extend_from_slice(&0u16.to_le_bytes());
+            central_directory.extend_from_slice(&0u16.to_le_bytes());
+            central_directory.extend_from_slice(&crc32.to_le_bytes());
+            central_directory.extend_from_slice(&size.to_le_bytes());
+            central_directory.extend_from_slice(&size.to_le_bytes());
+            central_directory.extend_from_slice(&path_len.to_le_bytes());
+            central_directory.extend_from_slice(&0u16.to_le_bytes());
+            central_directory.extend_from_slice(&0u16.to_le_bytes());
+            central_directory.extend_from_slice(&0u16.to_le_bytes());
+            central_directory.extend_from_slice(&0u16.to_le_bytes());
+            central_directory.extend_from_slice(&0u32.to_le_bytes());
+            central_directory.extend_from_slice(&offset.to_le_bytes());
+            central_directory.extend_from_slice(path_bytes);
+        }
+
+        let central_directory_size = u32::try_from(central_directory.len())
+            .map_err(|_| Error::InvalidCentralDirectory)?;
+        let entry_count = u16::try_from(self.entries.len())
+            .map_err(|_| Error::InvalidCentralDirectory)?;
+
+        out.extend_from_slice(&central_directory);
+        out.extend_from_slice(&EOCD_SIGNATURE.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&entry_count.to_le_bytes());
+        out.extend_from_slice(&entry_count.to_le_bytes());
+        out.extend_from_slice(&central_directory_size.to_le_bytes());
+        out.extend_from_slice(&central_directory_offset.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+
+        Ok(out)
+    }
+}
+
 /// Finds the ZIP end-of-central-directory record by scanning backward from the
 /// end of the archive, allowing for an optional trailing comment.
 fn find_eocd(bytes: &[u8]) -> Option<usize> {
@@ -304,6 +414,18 @@ fn inflate_raw(bytes: &[u8], expected_len: usize) -> Result<Vec<u8>, ()> {
     }
     output.truncate(written);
     Ok(output)
+}
+
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut value = 0xffff_ffffu32;
+    for &byte in bytes {
+        value ^= u32::from(byte);
+        for _ in 0..8 {
+            let mask = (value & 1).wrapping_neg() & 0xedb8_8320;
+            value = (value >> 1) ^ mask;
+        }
+    }
+    !value
 }
 
 const Z_OK: i32 = 0;

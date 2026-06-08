@@ -45,6 +45,10 @@ impl ProtoMessage {
         Ok(Self { fields })
     }
 
+    pub fn new(fields: Vec<ProtoField>) -> Self {
+        Self { fields }
+    }
+
     pub fn fields(&self) -> &[ProtoField] {
         &self.fields
     }
@@ -58,12 +62,64 @@ impl ProtoMessage {
             .iter()
             .filter(move |field| field.number == number)
     }
+
+    pub fn encode(&self) -> Result<Vec<u8>, Error> {
+        let mut out = Vec::new();
+        for field in &self.fields {
+            field.encode_into(&mut out)?;
+        }
+        Ok(out)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtoField {
     pub number: u32,
     pub value: ProtoValue,
+}
+
+impl ProtoField {
+    pub fn varint(number: u32, value: u64) -> Self {
+        Self {
+            number,
+            value: ProtoValue::Varint(value),
+        }
+    }
+
+    pub fn fixed64(number: u32, value: u64) -> Self {
+        Self {
+            number,
+            value: ProtoValue::Fixed64(value),
+        }
+    }
+
+    pub fn bytes(number: u32, value: impl Into<Vec<u8>>) -> Self {
+        Self {
+            number,
+            value: ProtoValue::LengthDelimited(value.into()),
+        }
+    }
+
+    pub fn string(number: u32, value: impl Into<String>) -> Self {
+        Self::bytes(number, value.into().into_bytes())
+    }
+
+    pub fn message(number: u32, value: ProtoMessage) -> Result<Self, Error> {
+        Ok(Self::bytes(number, value.encode()?))
+    }
+
+    pub fn fixed32(number: u32, value: u32) -> Self {
+        Self {
+            number,
+            value: ProtoValue::Fixed32(value),
+        }
+    }
+
+    pub(crate) fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), Error> {
+        let wire_type = self.value.wire_type();
+        push_varint(out, u64::from((self.number << 3) | u32::from(wire_type)));
+        self.value.encode_into(out)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,6 +166,32 @@ impl ProtoValue {
             _ => Ok(None),
         }
     }
+
+    fn wire_type(&self) -> u8 {
+        match self {
+            Self::Varint(_) => 0,
+            Self::Fixed64(_) => 1,
+            Self::LengthDelimited(_) => 2,
+            Self::Fixed32(_) => 5,
+        }
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), Error> {
+        match self {
+            Self::Varint(value) => {
+                push_varint(out, *value);
+            }
+            Self::Fixed64(value) => out.extend_from_slice(&value.to_le_bytes()),
+            Self::LengthDelimited(value) => {
+                let len = u64::try_from(value.len())
+                    .map_err(|_| Error::InvalidIwa("protobuf length overflow"))?;
+                push_varint(out, len);
+                out.extend_from_slice(value);
+            }
+            Self::Fixed32(value) => out.extend_from_slice(&value.to_le_bytes()),
+        }
+        Ok(())
+    }
 }
 
 pub fn read_varint(bytes: &[u8], cursor: &mut usize) -> Result<u64, Error> {
@@ -151,4 +233,18 @@ fn read_fixed64(bytes: &[u8], cursor: &mut usize) -> Result<u64, Error> {
     Ok(u64::from_le_bytes([
         slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
     ]))
+}
+
+fn push_varint(out: &mut Vec<u8>, mut value: u64) {
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
 }
