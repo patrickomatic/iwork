@@ -10,13 +10,9 @@ pub struct Table {
 }
 
 impl Table {
-    /// Parse all tile archives from a tile archive, using the provided string and formula `DataList`s.
-    pub(crate) fn from_tile(
-        tile: &IwaArchive,
-        strings: &HashMap<u32, String>,
-        formula: &HashMap<u32, f64>,
-    ) -> Self {
-        let rows = decode_rows(tile, strings, formula);
+    /// Parse all rows from a tile archive, resolving string cells against the provided `DataList`s.
+    pub(crate) fn from_tile(tile: &IwaArchive, strings: &HashMap<u32, String>) -> Self {
+        let rows = decode_rows(tile, strings);
         Self { rows }
     }
 
@@ -93,7 +89,7 @@ pub(crate) fn decode_string_datalist(archive: &IwaArchive) -> HashMap<u32, Strin
     map
 }
 
-fn decode_rows(tile: &IwaArchive, strings: &HashMap<u32, String>, formula: &HashMap<u32, f64>) -> Vec<TableRow> {
+fn decode_rows(tile: &IwaArchive, strings: &HashMap<u32, String>) -> Vec<TableRow> {
     let body = tile.body();
     let mut cursor = tile.leading_object_references_len();
     let mut rows = Vec::new();
@@ -118,93 +114,92 @@ fn decode_rows(tile: &IwaArchive, strings: &HashMap<u32, String>, formula: &Hash
         if msg.fields().is_empty() { continue }
 
         let row_index = msg.field(1).and_then(|f| f.value.as_varint()).unwrap_or(0);
-        let cells = decode_cells(&msg, strings, formula);
+        let cells = decode_cells(&msg, strings);
         rows.push(TableRow { index: row_index, cells });
     }
 
     rows
 }
 
-fn decode_cells(msg: &crate::protobuf::ProtoMessage, strings: &HashMap<u32, String>, formula: &HashMap<u32, f64>) -> Vec<CellValue> {
-    let f4 = msg.field(4).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
+/// Decode a row's cells from the current (`field 6` + `field 7`) wide-cell encoding.
+///
+/// Field 7 is the u16 cell-offset array (`0xffff` = empty column); field 6 is the
+/// cell-storage buffer. Each record begins with version byte `0x05`, a type byte,
+/// and a u32 LE flags bitmask at bytes 8-11. The low flag bits select which value
+/// field follows (in bit order) at byte 12: bit 0 = decimal128 number, bit 1 = IEEE
+/// double, bit 2 = date (seconds since the Cocoa epoch), bit 3 = string `DataList`
+/// key. Field 4 (legacy `_pre_bnc`, fixed 12-byte stride) is intentionally ignored.
+fn decode_cells(msg: &crate::protobuf::ProtoMessage, strings: &HashMap<u32, String>) -> Vec<CellValue> {
     let f6 = msg.field(6).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
     let f7 = msg.field(7).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
 
-    // Collect non-sentinel f4 column offsets (byte offsets into f6 for cell records).
-    let col_offsets: Vec<usize> = f4
+    let slots: Vec<u16> = f7
         .chunks_exact(2)
         .map(|b| u16::from_le_bytes([b[0], b[1]]))
-        .take_while(|&v| v != 0xffff)
-        .map(|v| v as usize)
         .collect();
 
-    // The inline numeric value area starts immediately after the last style record
-    // (max of f7 non-sentinel offsets + 12 bytes).
-    let inline_area_start = f7
-        .chunks_exact(2)
-        .map(|b| u16::from_le_bytes([b[0], b[1]]))
-        .filter(|&v| v != 0xffff)
-        .map(|v| v as usize)
-        .max()
-        .map_or(f6.len(), |last| last + 12);
+    // The row's cell count (field 2) bounds how many offset slots are real columns;
+    // fall back to the count of leading non-sentinel slots if it is missing or bogus.
+    let col_count = msg
+        .field(2)
+        .and_then(|f| f.value.as_varint())
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|&n| n <= slots.len())
+        .unwrap_or_else(|| slots.iter().take_while(|&&v| v != 0xffff).count());
 
-    let mut cells = Vec::with_capacity(col_offsets.len());
-    let mut inline_idx = 0usize;
-
-    for off in col_offsets {
-        let Some(rec) = f6.get(off..off + 12) else {
-            cells.push(CellValue::Empty);
-            continue;
-        };
-
-        let type_byte = rec[0];
-        let sub_type = rec[2];
-
-        let value = match type_byte {
-            0x03 => {
-                // Plain text: u32 DataList key at bytes 4-7
-                let key = u32::from_le_bytes(rec[4..8].try_into().unwrap_or([0; 4]));
-                strings.get(&key).cloned().map_or(CellValue::Empty, CellValue::Text)
+    slots
+        .iter()
+        .take(col_count)
+        .map(|&off| {
+            if off == 0xffff {
+                return CellValue::Empty;
             }
+            f6.get(off as usize..)
+                .map_or(CellValue::Empty, |rec| decode_cell_record(rec, strings))
+        })
+        .collect()
+}
 
-            0x00 if sub_type == 0x00 => {
-                // Date cell: f64 LE at bytes 0-7.
-                // Cocoa dates (seconds since Jan 1 2001) for years 2001-2128 are in [1, 4e9].
-                // If the value is outside that range it is Pattern D (formula cell): bytes 8-11
-                // hold the formula DataList key.
-                let secs = f64::from_le_bytes(rec[..8].try_into().unwrap_or([0; 8]));
-                if secs > 1.0 && secs < 4_000_000_000.0 {
-                    CellValue::Date(secs)
-                } else {
-                    let key = u32::from_le_bytes(rec[8..12].try_into().unwrap_or([0; 4]));
-                    formula.get(&key).copied().map_or(CellValue::Empty, CellValue::Number)
-                }
-            }
-
-            0x00 if sub_type == 0x80 => {
-                // Number: u32 in the inline area, one per numeric cell in order
-                let pos = inline_area_start + inline_idx * 12;
-                inline_idx += 1;
-                if let Some(raw) = f6.get(pos..pos + 4) {
-                    let n = u32::from_le_bytes(raw.try_into().unwrap_or([0; 4]));
-                    CellValue::Number(f64::from(n))
-                } else {
-                    CellValue::Empty
-                }
-            }
-
-            // Pattern A: byte0 is a non-zero type that varies per row (formula cells),
-            // bytes 1-3 are zero, bytes 8-11 hold the formula DataList key.
-            _ if rec[1] == 0 && rec[2] == 0 && rec[3] == 0 => {
-                let key = u32::from_le_bytes(rec[8..12].try_into().unwrap_or([0; 4]));
-                formula.get(&key).copied().map_or(CellValue::Empty, CellValue::Number)
-            }
-
-            _ => CellValue::Empty,
-        };
-
-        cells.push(value);
+/// Decode a single wide-cell record (see [`decode_cells`] for the layout).
+fn decode_cell_record(rec: &[u8], strings: &HashMap<u32, String>) -> CellValue {
+    if rec.len() < 12 || rec[0] != 0x05 {
+        return CellValue::Empty;
     }
+    let flags = u32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]);
+    let body = &rec[12..];
 
-    cells
+    if flags & 0x1 != 0 {
+        body.get(..16).map_or(CellValue::Empty, |b| CellValue::Number(decode_decimal128(b)))
+    } else if flags & 0x2 != 0 {
+        body.get(..8).map_or(CellValue::Empty, |b| {
+            CellValue::Number(f64::from_le_bytes(b.try_into().unwrap_or([0; 8])))
+        })
+    } else if flags & 0x4 != 0 {
+        body.get(..8).map_or(CellValue::Empty, |b| {
+            CellValue::Date(f64::from_le_bytes(b.try_into().unwrap_or([0; 8])))
+        })
+    } else if flags & 0x8 != 0 {
+        let key = body.get(..4).map_or(0, |b| u32::from_le_bytes(b.try_into().unwrap_or([0; 4])));
+        strings.get(&key).cloned().map_or(CellValue::Empty, CellValue::Text)
+    } else {
+        CellValue::Empty
+    }
+}
+
+/// Decode a 16-byte IEEE 754-2008 decimal128 value (as stored by Numbers) to `f64`.
+///
+/// The trailing two bytes hold the sign bit and biased exponent; bytes 0-13 plus the
+/// low bit of byte 14 form the coefficient. This mirrors the well-known
+/// `numbers-parser` decode and is exact enough for display use.
+fn decode_decimal128(b: &[u8]) -> f64 {
+    debug_assert!(b.len() >= 16);
+    let exp = ((i32::from(b[15] & 0x7f) << 7) | i32::from(b[14] >> 1)) - 0x1820;
+    let mut mantissa = f64::from(b[14] & 1);
+    for &byte in b[..14].iter().rev() {
+        mantissa = mantissa * 256.0 + f64::from(byte);
+    }
+    if b[15] & 0x80 != 0 {
+        mantissa = -mantissa;
+    }
+    mantissa * 10f64.powi(exp)
 }

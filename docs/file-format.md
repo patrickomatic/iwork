@@ -122,139 +122,46 @@ Tile archives store cell data in a stream of row messages in the body. Each row 
 
 - Field 1: row index (varint, 0-based; row 0 = header row)
 - Field 2: column count (varint)
-- Field 3: bytes[ncols × 12] — column metadata (byte 0 of each 12-byte entry = 0x04 for all column types seen)
-- Field 4: bytes[255 × 2] — uint16 LE byte offsets into field 6 for each column's cell record; 0xffff = empty column
+- Field 3: bytes[ncols × 12] — *legacy* (`_pre_bnc`) column metadata
+- Field 4: bytes[255 × 2] — *legacy* (`_pre_bnc`) uint16 LE offsets (fixed 12-byte stride); superseded by field 7
 - Field 5: varint (ncells count)
-- Field 6: bytes[variable] — packed cell and value data (see layout below)
-- Field 7: bytes[255 × 2] — uint16 LE byte offsets into field 6 for each column's style record
+- Field 6: bytes[variable] — the current cell-storage buffer (see layout below)
+- Field 7: bytes[255 × 2] — uint16 LE byte offsets into field 6 for each column's cell record; 0xffff = empty column. **This is the offset array to use** (not field 4).
 
-### Field 6 Layout
+### Field 6 Layout (wide-cell records)
 
-Field 6 is a flat byte buffer holding the cell records for a row.
+Field 6 is the cell-storage buffer. Each column's record starts at its field-7 offset; records are **variable length** and each begins with the version byte `0x05`. `decode_cells` in `src/numbers/table.rs` implements this. (The legacy field 3/4 `_pre_bnc` arrays use a fixed 12-byte stride and are ignored — reading field-4 offsets into field 6 lands mid-record for every cell after the first.)
 
-**Correct offset array: field 7, not field 4** *(structurally grounded — verified across Tile-1139365 and Tile-1139370 in `my_stocks.numbers`)*. The `TileRowInfo` message carries two parallel encodings:
+Record header *(structurally grounded — verified across `Tile-1139365` and `Tile-1139370` in `my_stocks.numbers`)*:
 
-- **field 3 + field 4** — the *legacy* `_pre_bnc` buffer and its u16 offset array. The offsets are a fixed 12-byte stride (`[0, 12, 24, …]`).
-- **field 6 + field 7** — the *current* buffer and its u16 offset array. These records are **variable length** (observed 24–44 bytes) and each begins with the **version byte `0x05`**.
+| Byte(s) | Meaning |
+|---------|---------|
+| 0       | version = `0x05` |
+| 1       | cell type |
+| 2-7     | reserved / sub-headers |
+| 8-11    | flags bitmask (u32 LE) |
+| 12+     | optional value fields, present in flag-bit order |
 
-Example (Tile-1139365, row 1): `f4_offsets = [0, 12, 24, 36, …]` (fixed 12) vs `f7_offsets = [0, 32, 64, 104, 144, 184, 220, 264, …]` (variable). Slicing f6 at the f7 boundaries yields clean records that all start with `05`; slicing at f4 offsets lands in the middle of records after the first.
+The low flag bits select the value field that follows at byte 12 (each consumes a fixed width, in bit order):
 
-> **Bug in current `table.rs`:** `decode_cells` reads cell offsets from **field 4** but indexes into **field 6**. Only the first cell (offset 0, where both arrays agree) is reliably aligned; every later cell is read from a misaligned 12-byte window. Some text/date/formula values still decoded because the misaligned bytes happened to land on plausible values — a data-inferred coincidence, not a structural guarantee. **Fix:** use field 7 offsets and parse variable-length records delimited by consecutive offsets, keyed off the `0x05` version byte.
+| Flag bit | Field | Width | Decoded as |
+|----------|-------|-------|------------|
+| `0x1`    | decimal128 number | 16 | `Number` |
+| `0x2`    | IEEE 754 double   | 8  | `Number` |
+| `0x4`    | date (seconds since Cocoa epoch) | 8 | `Date` |
+| `0x8`    | string `DataList` key (u32 LE) | 4 | `Text` |
 
-The variable-length record body (after `0x05` version + type byte) is not yet fully decoded; type `0x0a` records carry a wide value in their tail whose encoding is still unknown (not a plain f64/u32).
+Higher bits (formula id, style ids, number-format id, …) follow but are not needed to recover the value, since the value fields are the lowest four bits and therefore appear first. The cell type byte (offset 1) is *not* used for value typing — the flags are authoritative.
 
-**Legacy 12-byte record interpretation** (field 4 offsets — superseded by the above, kept for reference):
-
-| Byte(s) | Type 0x05 (style) | Type 0x03 (string) | Type 0x00 byte2=0x00 (date) | Type 0x00 byte2=0x80 (number) |
-|---------|-------------------|--------------------|-----------------------------|-------------------------------|
-| 0       | 0x05              | 0x03               | 0x00                        | 0x00                          |
-| 1       | extra flags       | extra flags        | 0x00                        | 0x00                          |
-| 2       | ...               | 0x00               | 0x00                        | 0x80                          |
-| 3       | ...               | 0x00               | 0x00                        | 0x00                          |
-| 4-7     | style data        | DataList key (u32 LE) | date value high bytes   | format ref (u32 LE, constant) |
-| 0-7     | —                 | —                  | f64 LE seconds since epoch  | —                             |
-| 8-11    | style data        | rich text style    | format DataList key (u32)   | DataList key (u32 LE, varies) |
-
-**Inline numeric value area** *(structurally grounded)*: starts at `max(field7_non_sentinel_offsets) + 12` — the byte immediately after the last field 7 style record. This formula is general and derives from the field 7 offset array, not from any hardcoded position.
-
-**Inline numeric value encoding** *(provisional, observed in one file)*: the first 4 bytes at the inline area start are a u32 LE value for the first numeric column; subsequent numeric columns follow at +12 byte intervals. The unit (whole dollars, cents, etc.) depends on the format DataList referenced at bytes 8-11 of the cell record. This was observed in `personal_budget.numbers` only and may not generalise.
-
-### Date Encoding
-
-Dates are stored as f64 seconds since the Cocoa/NSDate epoch: **January 1, 2001, 00:00:00 UTC**.
-
-Example: 625,881,600 seconds → November 3, 2020.
+**Decimal128.** Numbers stores numeric values as IEEE 754-2008 decimal128 (16 bytes, little-endian). The two high bytes hold the sign bit and biased exponent; bytes 0-13 plus the low bit of byte 14 form the coefficient. `decode_decimal128` converts to `f64`: `coefficient × 10^(exp)` where `exp = (((b[15] & 0x7f) << 7) | (b[14] >> 1)) - 0x1820` and the sign comes from `b[15] & 0x80`. Decimal storage is why values like `307.34` round-trip exactly. (This mirrors the well-known `numbers-parser` decode.)
 
 ### String Lookup
 
-String cell records (type 0x03) store a u32 DataList key at bytes 4-7. Look up the corresponding string in the matching DataList archive (field 3 = string value).
+String cells carry a u32 `DataList` key (flag bit `0x8`, at byte 12). Look it up in the string `DataList` archives (field 1 = key, field 3 = UTF-8 value); see `decode_string_datalist`.
 
-### Numeric Value Encoding
+### Date Encoding
 
-For type `0x00` / sub-type `0x80` cells: the value is stored in the inline area (see above), not in the cell record itself. Bytes 4-7 of the cell record are a constant format reference; bytes 8-11 are the format DataList key (varies per column, constant per row). The format DataList encodes display precision. The actual numeric unit (whole dollars, cents, etc.) is not yet determined structurally.
-
-### Formula-Result Cells *(resolved)*
-
-Some numeric cells do not store their value inline — they reference it by a **u32 LE key in bytes 8-11** of the cell record, looked up in a separate *formula* `DataList`. This covers the records previously catalogued as Pattern A and Pattern D below.
-
-**Formula DataList structure** (`DataList` archive with field 1 / listType = `3`):
-
-- The list message's field 2 is the maximum key (`max_key`) in the list.
-- Each entry is a field-3 sub-message: field 1 = the u32 key; field 5 = a nested value message. The f64 result is reached via field 5 → field 1 → field 4 (a `fixed64`, read with `f64::from_bits`). See `decode_formula_datalist` in `src/numbers/spreadsheet.rs`.
-
-**Matching a Tile to its formula DataList.** A document contains several formula DataLists with disjoint key ranges. To pick the right one for a Tile, `scan_max_formula_key` finds the largest bytes-8-11 value that *varies across rows within a single column* (a constant value is a format reference, not a formula key), and the matcher selects the smallest DataList whose `max_key` covers it.
-
-> **Pitfall (fixed):** non-formula columns also place varying values in bytes 8-11 (style/format indices that can read as large integers, e.g. `2565` in `my_stocks.numbers`). Left unbounded, the scan returns one of those, no DataList's `max_key` covers it, and *every* formula cell falls back to `Empty`. The scan is therefore capped by an `upper_bound` = the largest `max_key` across all formula DataLists (`formula_lists` sorted ascending → `.last()`); candidates above it are rejected. In `my_stocks.numbers` the formula list is `DataList-1139377` (`max_key=19`, 12 entries), so the bound is 19.
-
-### Unknown Cell Encodings (Investigation Notes)
-
-The following observations come from structural analysis of `my_stocks.numbers` (`Tile-1139365.iwa`). **Byte 0 of the cell record is not always a fixed type tag** — it varies per row for the same column in several observed patterns. Patterns A and D below are now decoded as formula-result cells (see above); Patterns B, C, and E remain `CellValue::Empty`.
-
-**Pattern A — varying byte 0, bytes 1-7 constant per column, bytes 8-11 vary:**
-
-```
-col 1, row 1: [0f 00 00 00  04 00 00 00  01 00 00 00]
-col 1, row 2: [10 00 00 00  04 00 00 00  12 00 00 00]
-col 1, row 3: [11 00 00 00  04 00 00 00  0e 00 00 00]
-```
-
-- Bytes 0 and 8-11 both vary per row; bytes 1-7 are constant per column.
-- Bytes 4-7 = `04 00 00 00` look like a format reference (same role as in 0x00/0x80 cells).
-- The value encoding is not yet determined. Byte 0 as a u32 LE (together with bytes 1-3 = 0x00) gives small integers (15, 16, 17) that do not obviously encode the cell value.
-
-**Pattern B — varying byte 0, wide variable bytes 5-11:**
-
-```
-col 6, row 1: [01 52 00 00 00  78 86 2b 86 17 01 00]
-col 6, row 2: [01 52 00 00 00  a0 18 47 2a d0 00 00]
-col 6, row 3: [01 52 00 00 00  10 53 9c e6 86 01 00]
-```
-
-- Bytes 0-4 = `01 52 00 00 00` are constant per column.
-- Bytes 5-11 vary per row. Likely encode the cell value, but the encoding is unknown (not a standard f64 or u32).
-
-**Pattern C — entirely constant record across all rows:**
-
-```
-col 5, all rows: [01 00 00 00 05 0a 00 00 00 00 00 08]
-col 8, all rows: [02 00 00 00 02 00 00 00 05 0a 00 00]
-col 11, all rows: [04 00 00 00 02 00 00 00 02 00 00 00]
-```
-
-- All 12 bytes are identical across every data row.
-- Likely formula cells, cells computed from other cells, or some other indirection — no per-row value is stored directly in the record.
-
-**Pattern D — type 0x00 with unexpected byte layout:**
-
-```
-col 3, row 1: [00 00 00 00  48 12 02 00  03 00 00 00]
-col 3, row 2: [00 00 00 00  48 12 02 00  12 00 00 00]
-col 3, row 3: [00 00 00 00  48 12 02 00  13 00 00 00]
-```
-
-- Byte 0 = 0x00, byte 2 = 0x00 → current code interprets as a date (f64 at bytes 0-7).
-- But bytes 0-7 are `00 00 00 00 48 12 02 00` (u64 LE = 0x0002124800000000, a denormal f64 ≈ 0), which the decoder treats as `Empty`.
-- Bytes 4-7 = `48 12 02 00` are constant per column (looks like a format reference).
-- Bytes 8-11 vary per row (3, 18, 19) — same role as a DataList key.
-- **Hypothesis**: this may be a numeric cell, not a date — the format-ref / DataList-key pattern matches the 0x00/0x80 number layout, suggesting byte 2 = 0x00 does not reliably distinguish dates from numbers.
-
-**Pattern E — large varint-like byte 0 (high-byte set):**
-
-```
-col 10, row 1: [cb 61 01 00 00 00 00 00 00 00 24 b0]
-col 10, row 2: [9d 9a 00 00 00 00 00 00 00 00 24 30]
-col 10, row 3: [13 46 02 00 00 00 00 00 00 00 22 b0]
-```
-
-- Bytes 0-3 vary; bytes 4-9 = `00 00 00 00 00 00` are constant; bytes 10-11 vary per row.
-- The `cb`, `9d` bytes have bit 7 set (varint continuation in LEB128). If bytes 0-N are a LEB128 varint and bytes 10-11 are a secondary field, the varint values are 12491, 3357, and 19 — all small integers, but their units are unknown.
-- **Alternative**: bytes 0-3 are a u32 LE value (90571, 39581, 74259) with bytes 10-11 as a secondary key.
-
-**Next steps**: Patterns A and D are resolved (formula-result cells, see above). Patterns B, C, and E remain open.
-
-`DataList-1139369` was investigated and ruled out as a value store: despite being the largest non-string archive (1616 bytes), its listType (field 1) = `9` and it holds only **2 entries**, each an object-ID *reference* (field 4 → sub-message field 1 = `1139438`, `1139491`) rather than a per-cell value. A 30-row table cannot draw its values from a 2-entry list, so listType=9 is a reference list (merged cells / conditional formats / similar), not numeric data.
-
-That points the remaining patterns back to **inline encodings inside the 12-byte cell record**. Pattern B (`col 6: 01 52 00 00 00 | 78 86 2b 86 17 01 00`) has a constant 5-byte prefix and a varying 7-byte tail — the value is almost certainly in that tail, but it is not a plain f64/u32. Decoding it likely requires understanding byte 0 as a flags/type tag and the trailing bytes as a packed/scaled integer. (See the `investigate_datalist_1139369` scratch test.)
+Dates are f64 seconds since the Cocoa/NSDate epoch: **January 1, 2001, 00:00:00 UTC** (flag bit `0x4`). Example: 625,881,600 → November 3, 2020.
 
 ## Write Behavior
 
