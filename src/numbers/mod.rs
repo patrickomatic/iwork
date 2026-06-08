@@ -55,14 +55,6 @@ impl Document {
         Spreadsheet::from_package(&self.package)
     }
 
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.package.into_bytes()
-    }
-
-    pub fn write(&self, path: impl AsRef<Path>) -> Result<(), Error> {
-        self.package.write(path)
-    }
-
     pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
         self.package.inspect(path)
     }

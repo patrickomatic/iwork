@@ -187,7 +187,7 @@ Pages semantic parser therefore takes a more conservative approach:
 - it filters out known locale, formatting, stylesheet, and UUID noise
 - it normalizes high-confidence headings such as `Chapter N`
 
-This powers `pages::Document::semantic_document()`, which returns:
+This powers `pages::Document::document()`, which returns:
 
 - an optional title when a strong multi-word title candidate is present
 - normalized headings (`Prologue`, `Subheading`, `Chapter 1`, ...)
@@ -217,7 +217,7 @@ document archive. The current semantic parser therefore works slide-by-slide:
 - it filters out known locale, transition, UUID, and formatting noise
 - it classifies layout names, placeholder titles, and media descriptions
 
-This powers `keynote::Document::semantic_presentation()`, which returns a list
+This powers `keynote::Document::presentation()`, which returns a list
 of semantic slides containing:
 
 - the source archive path
@@ -236,9 +236,3 @@ Current known limitations:
 - presenter notes, animations, and exact on-slide object structure are not yet parsed
 - some recovered text still reflects placeholder/template phrasing rather than
   finalized authored content
-
-## Write Behavior
-
-Current write support is package-preserving, not format-rewriting.
-
-When you call `write`, the crate writes the original package bytes back out unchanged. That gives us a strong round-trip guarantee for the currently supported workflows, but it also means the crate is not yet performing semantic edits to package contents.

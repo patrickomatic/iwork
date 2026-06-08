@@ -14,7 +14,6 @@
 //!   supported
 //! - entry names are expected to be UTF-8
 //! - `entry_bytes` only supports stored entries with compression method `0`
-//! - write support is byte-preserving rather than reconstructing the archive
 
 use std::fs;
 use std::path::Path;
@@ -118,17 +117,6 @@ impl Package {
     /// Returns the central-directory entries discovered in the package.
     pub fn entries(&self) -> &[Entry] {
         &self.entries
-    }
-
-    /// Consumes the package and returns the original archive bytes.
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.bytes
-    }
-
-    /// Writes the original archive bytes back out unchanged.
-    pub fn write(&self, path: impl AsRef<Path>) -> Result<(), Error> {
-        fs::write(path, &self.bytes)?;
-        Ok(())
     }
 
     /// Returns the raw bytes for a package entry.

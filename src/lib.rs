@@ -1,6 +1,7 @@
 //! Public entry points for reading Apple iWork packages.
 //!
-//! The crate currently supports three layers of access:
+//! The crate currently supports generic package inspection plus app-specific
+//! semantic readers:
 //!
 //! - [`Document`] for generic iWork package access
 //! - [`Package`] for ZIP-level entry enumeration and raw entry bytes
@@ -58,16 +59,6 @@ impl Document {
     /// Returns the underlying ZIP-like package view.
     pub fn package(&self) -> &Package {
         &self.package
-    }
-
-    /// Consumes the document and returns the original package bytes.
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.package.into_bytes()
-    }
-
-    /// Writes the original package bytes back out unchanged.
-    pub fn write(&self, path: impl AsRef<Path>) -> Result<(), Error> {
-        self.package.write(path)
     }
 
     /// Produces a small inspection report derived from known package members.
