@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::CellValue;
+use super::table::encode_decimal128;
 use crate::iwa::{IwaArchive, IwaArchiveDescriptor, IwaPacket};
 use crate::package::PackageWriter;
 use crate::protobuf::{ProtoField, ProtoMessage};
@@ -44,23 +44,40 @@ impl Workbook {
     /// bundled personal-budget fixture rather than synthesizing it from scratch.
     pub fn encode_scaffold_package(&self) -> Result<Vec<u8>, Error> {
         let Some(table) = self.tables.first() else {
-            return Err(Error::InvalidIwa("workbook must contain at least one table"));
+            return Err(Error::InvalidIwa(
+                "workbook must contain at least one table",
+            ));
         };
-        let strings = collect_strings_starting_at(&table.rows, 10_000);
-        let tile = encode_tile_archive_with_root(&table.rows, &strings, 904_525)?;
-        let datalist = encode_string_datalist_archive_with_root(&strings, 904_498)?;
 
         let scaffold = Document::from_bytes(PERSONAL_BUDGET_SCAFFOLD.to_vec())?;
         let package = scaffold.package();
+
+        // The scaffold table's geometry, cell styles, and storage layout are
+        // referenced by other (untouched) archives, so rather than synthesize a
+        // tile from scratch we patch the real one in place: only cell *values*
+        // change, leaving every structural byte (cell types, style ids, legacy
+        // arrays) intact. Caller rows are mapped onto the original geometry.
+        let original_tile = IwaArchive::decode(package.entry_bytes(SUMMARY_TABLE_TILE_PATH)?)?;
+        let original_datalist =
+            IwaArchive::decode(package.entry_bytes(SUMMARY_TABLE_DATALIST_PATH)?)?;
+        let (row_count, col_count) = tile_geometry(&original_tile)?;
+        let rows = reshape_rows(&table.rows, row_count, col_count);
+
+        let mut strings = StringTable::from_datalist(&original_datalist)?;
+        let tile_body = patch_tile_body(&original_tile, &rows, &mut strings)?;
+        let tile = archive_with_body(&original_tile, tile_body)?;
+        let datalist = archive_with_body(&original_datalist, strings.encode_body()?)?;
+
         let mut writer = PackageWriter::new();
-        let document_identifier = generated_document_identifier();
 
         for entry in package.entries() {
             let bytes = match entry.path.as_str() {
                 SUMMARY_TABLE_TILE_PATH => tile.clone(),
                 SUMMARY_TABLE_DATALIST_PATH => datalist.clone(),
-                "Metadata/DocumentIdentifier" => document_identifier.clone().into_bytes(),
-                path if std::path::Path::new(path).extension().is_some_and(|ext| ext == "iwa") => {
+                path if std::path::Path::new(path)
+                    .extension()
+                    .is_some_and(|ext| ext == "iwa") =>
+                {
                     // Re-emit through our own IWA encoder to prove the writer can
                     // reproduce the full archive graph, not just the table tiles.
                     IwaArchive::decode(package.entry_bytes(path)?)?.reencode()?
@@ -152,33 +169,374 @@ fn collect_strings_starting_at(rows: &[Vec<CellValue>], first_key: u32) -> BTree
     map
 }
 
+/// Number of `u16` offset slots in a `TileRowInfo` offset array (`f4`/`f7`).
+/// Real Numbers tiles always store 255 slots (510 bytes), padded with `0xffff`.
+const TILE_OFFSET_SLOTS: usize = 255;
+/// Constant `TileRowInfo.f5` cell-storage marker observed across real tiles.
+const TILE_ROW_STORAGE_VERSION: u64 = 5;
+/// `MessageInfo.version` triple (`f2`) carried by every real archive header.
+const ARCHIVE_VERSION: [u8; 3] = [1, 0, 5];
+
 fn encode_tile_archive(
     rows: &[Vec<CellValue>],
     strings: &BTreeMap<String, u32>,
 ) -> Result<Vec<u8>, Error> {
-    encode_tile_archive_with_root(rows, strings, 1)
+    let col_count = rows.iter().map(Vec::len).max().unwrap_or(0);
+    encode_tile_archive_with_root(rows, col_count, strings, 1)
 }
 
 fn encode_tile_archive_with_root(
     rows: &[Vec<CellValue>],
+    col_count: usize,
     strings: &BTreeMap<String, u32>,
     root_object_id: u64,
 ) -> Result<Vec<u8>, Error> {
-    let body = encode_length_delimited_stream(
-        rows.iter()
-            .enumerate()
-            .map(|(row_index, row)| encode_row_message(row_index, row, strings))
-            .collect::<Result<Vec<_>, Error>>()?,
-    )?;
+    let body = encode_tile_body(rows, col_count, strings)?;
+    let header = synthesize_header(root_object_id, 6002, body.len())?;
+    IwaArchive::encode(header, body)
+}
 
+/// Encodes a `TileArchive` body as a single Tile message.
+///
+/// The Tile message carries `f4` = row count and a repeated `f5` of
+/// [`encode_row_message`] entries, matching the structure real Numbers tiles
+/// use (rather than a bare stream of row messages, which Numbers rejects).
+fn encode_tile_body(
+    rows: &[Vec<CellValue>],
+    col_count: usize,
+    strings: &BTreeMap<String, u32>,
+) -> Result<Vec<u8>, Error> {
+    let row_count =
+        u64::try_from(rows.len()).map_err(|_| Error::InvalidIwa("row count overflow"))?;
+
+    let mut fields = vec![
+        ProtoField::varint(1, 0),
+        ProtoField::varint(2, 0),
+        ProtoField::varint(3, 0),
+        ProtoField::varint(4, row_count),
+    ];
+    for (row_index, row) in rows.iter().enumerate() {
+        fields.push(ProtoField::message(
+            5,
+            encode_row_message(row_index, row, col_count, strings)?,
+        )?);
+    }
+    fields.push(ProtoField::varint(6, 5));
+    fields.push(ProtoField::varint(7, 1));
+
+    ProtoMessage::new(fields).encode()
+}
+
+/// Builds an archive header packet for a freshly synthesized body.
+fn synthesize_header(root_object_id: u64, kind: u64, body_len: usize) -> Result<IwaPacket, Error> {
     let descriptor = IwaArchiveDescriptor {
         root_object_id: Some(root_object_id),
-        kind_hint: Some(6002),
-        body_hint: Some(u64::try_from(body.len()).map_err(|_| Error::InvalidIwa("body length overflow"))?),
+        kind_hint: Some(kind),
+        message_version: Some(ARCHIVE_VERSION.to_vec()),
+        body_hint: Some(
+            u64::try_from(body_len).map_err(|_| Error::InvalidIwa("body length overflow"))?,
+        ),
         object_references: Vec::new(),
     };
-    let header = IwaPacket::new(descriptor.encode_message()?.encode()?);
-    IwaArchive::encode(header, body)
+    Ok(IwaPacket::new(descriptor.encode_message()?.encode()?))
+}
+
+/// Re-wraps a new `body` using an existing archive's header, preserving its
+/// root id, kind, version triple, and object references — only the
+/// `MessageInfo` body-length field (`f3`) is updated to match `body`.
+///
+/// This is the reliable way to replace a scaffold archive's contents: Numbers
+/// validates the header against the body, and the original header carries
+/// fields (version, object references) we do not otherwise reconstruct.
+fn archive_with_body(original: &IwaArchive, body: Vec<u8>) -> Result<Vec<u8>, Error> {
+    let header = original.header().decode_message()?;
+    let body_len =
+        u64::try_from(body.len()).map_err(|_| Error::InvalidIwa("body length overflow"))?;
+
+    let mut fields = Vec::with_capacity(header.fields().len());
+    for field in header.fields() {
+        if field.number == 2
+            && let Some(info) = field.value.as_message().ok().flatten()
+        {
+            let mut info_fields = Vec::with_capacity(info.fields().len());
+            let mut replaced = false;
+            for info_field in info.fields() {
+                if info_field.number == 3 {
+                    info_fields.push(ProtoField::varint(3, body_len));
+                    replaced = true;
+                } else {
+                    info_fields.push(info_field.clone());
+                }
+            }
+            if !replaced {
+                info_fields.push(ProtoField::varint(3, body_len));
+            }
+            fields.push(ProtoField::message(2, ProtoMessage::new(info_fields))?);
+        } else {
+            fields.push(field.clone());
+        }
+    }
+
+    let packet = IwaPacket::new(ProtoMessage::new(fields).encode()?);
+    IwaArchive::encode(packet, body)
+}
+
+/// Reads `(row_count, column_count)` from a decoded tile archive.
+///
+/// Row count is the number of `TileRowInfo` (`f5`) entries; column count is the
+/// first row's `f2`. Falls back to the tile-level `f4` row count when present.
+fn tile_geometry(tile: &IwaArchive) -> Result<(usize, usize), Error> {
+    let message = ProtoMessage::decode(tile.body())?;
+    let rows: Vec<&ProtoField> = message.fields_by_number(5).collect();
+    let row_count = rows.len();
+    let col_count = rows
+        .first()
+        .and_then(|row| row.value.as_message().ok().flatten())
+        .and_then(|row| row.field(2).and_then(|f| f.value.as_varint()))
+        .and_then(|n| usize::try_from(n).ok())
+        .unwrap_or(0);
+
+    if row_count == 0 || col_count == 0 {
+        return Err(Error::InvalidIwa("scaffold tile has no decodable geometry"));
+    }
+    Ok((row_count, col_count))
+}
+
+/// Pads or truncates `rows` to exactly `row_count` × `col_count`, filling any
+/// missing cells with [`CellValue::Empty`].
+fn reshape_rows(
+    rows: &[Vec<CellValue>],
+    row_count: usize,
+    col_count: usize,
+) -> Vec<Vec<CellValue>> {
+    (0..row_count)
+        .map(|r| {
+            (0..col_count)
+                .map(|c| {
+                    rows.get(r)
+                        .and_then(|row| row.get(c))
+                        .cloned()
+                        .unwrap_or(CellValue::Empty)
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// A string `DataList` seeded from an existing archive, so original entries keep
+/// their keys; new strings are appended with fresh keys.
+struct StringTable {
+    entries: Vec<(u32, String)>,
+    next_key: u32,
+}
+
+impl StringTable {
+    fn from_datalist(archive: &IwaArchive) -> Result<Self, Error> {
+        let message = ProtoMessage::decode(archive.body())?;
+        let mut entries = Vec::new();
+        let mut max_key = 0;
+
+        for entry in message.fields_by_number(3) {
+            let Some(entry) = entry.value.as_message().ok().flatten() else {
+                continue;
+            };
+            let Some(key) = entry
+                .field(1)
+                .and_then(|f| f.value.as_varint())
+                .and_then(|k| u32::try_from(k).ok())
+            else {
+                continue;
+            };
+            let value = entry
+                .field(3)
+                .and_then(|f| f.value.as_bytes())
+                .and_then(|b| std::str::from_utf8(b).ok())
+                .unwrap_or_default()
+                .to_owned();
+            max_key = max_key.max(key);
+            entries.push((key, value));
+        }
+
+        Ok(Self {
+            entries,
+            next_key: max_key + 1,
+        })
+    }
+
+    /// Returns the key for `value`, reusing an existing entry or appending one.
+    fn key_for(&mut self, value: &str) -> u32 {
+        if let Some((key, _)) = self.entries.iter().find(|(_, s)| s == value) {
+            return *key;
+        }
+        let key = self.next_key;
+        self.next_key += 1;
+        self.entries.push((key, value.to_owned()));
+        key
+    }
+
+    /// Encodes the `TableDataList` body (`f1`=list type, `f2`=next key, repeated
+    /// `f3` entries `{ f1=key, f2=refcount, f3=string }`).
+    fn encode_body(&self) -> Result<Vec<u8>, Error> {
+        let mut fields = vec![
+            ProtoField::varint(1, 1),
+            ProtoField::varint(2, u64::from(self.next_key)),
+        ];
+        for (key, value) in &self.entries {
+            fields.push(ProtoField::message(
+                3,
+                ProtoMessage::new(vec![
+                    ProtoField::varint(1, u64::from(*key)),
+                    ProtoField::varint(2, 1),
+                    ProtoField::string(3, value),
+                ]),
+            )?);
+        }
+        ProtoMessage::new(fields).encode()
+    }
+}
+
+/// Rebuilds a tile body by patching only the *values* of cells the caller
+/// supplied, leaving every other byte of the real tile untouched.
+///
+/// A cell is patched only when the caller value matches the original cell's
+/// stored kind (number → decimal128/double, date → seconds, text → string key),
+/// so record lengths and offsets never change.
+fn patch_tile_body(
+    tile: &IwaArchive,
+    rows: &[Vec<CellValue>],
+    strings: &mut StringTable,
+) -> Result<Vec<u8>, Error> {
+    let message = ProtoMessage::decode(tile.body())?;
+
+    let mut fields: Vec<ProtoField> = Vec::with_capacity(message.fields().len());
+    let mut row_index = 0usize;
+    for field in message.fields() {
+        if field.number != 5 {
+            fields.push(field.clone());
+            continue;
+        }
+
+        let row_message = field
+            .value
+            .as_message()
+            .ok()
+            .flatten()
+            .ok_or(Error::InvalidIwa("tile row is not a message"))?;
+        let patched = patch_row_message(&row_message, rows.get(row_index), strings)?;
+        fields.push(ProtoField::message(5, patched)?);
+        row_index += 1;
+    }
+
+    ProtoMessage::new(fields).encode()
+}
+
+/// Patches one `TileRowInfo`'s cell-storage buffer (`f6`) in place; all other
+/// row fields are preserved verbatim.
+fn patch_row_message(
+    row: &ProtoMessage,
+    values: Option<&Vec<CellValue>>,
+    strings: &mut StringTable,
+) -> Result<ProtoMessage, Error> {
+    let Some(values) = values else {
+        return Ok(row.clone());
+    };
+
+    let mut storage = row
+        .field(6)
+        .and_then(|f| f.value.as_bytes())
+        .unwrap_or_default()
+        .to_vec();
+    let offsets: Vec<u16> = row
+        .field(7)
+        .and_then(|f| f.value.as_bytes())
+        .unwrap_or_default()
+        .chunks_exact(2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        .collect();
+
+    for (column, value) in values.iter().enumerate() {
+        if matches!(value, CellValue::Empty) {
+            continue;
+        }
+        let Some(&offset) = offsets.get(column) else {
+            continue;
+        };
+        if offset == 0xffff {
+            continue;
+        }
+        patch_cell_value(&mut storage, offset as usize, value, strings);
+    }
+
+    let mut fields: Vec<ProtoField> = Vec::with_capacity(row.fields().len());
+    for field in row.fields() {
+        if field.number == 6 {
+            fields.push(ProtoField::bytes(6, storage.clone()));
+        } else {
+            fields.push(field.clone());
+        }
+    }
+    Ok(ProtoMessage::new(fields))
+}
+
+/// Overwrites the value bytes of a single wide-cell record, keeping its flags,
+/// type byte, and trailing style ids unchanged. No-op on a kind mismatch.
+fn patch_cell_value(
+    storage: &mut [u8],
+    offset: usize,
+    value: &CellValue,
+    strings: &mut StringTable,
+) {
+    let Some(record) = storage.get(offset..) else {
+        return;
+    };
+    if record.len() < 12 || record[0] != 0x05 {
+        return;
+    }
+    let flags = u32::from_le_bytes([record[8], record[9], record[10], record[11]]);
+
+    // The value field is the lowest set value bit; its offset is 12 plus the
+    // widths of any lower-order value fields that are also present.
+    let value_offset = |bit: u32| -> usize {
+        let mut at = offset + 12;
+        for (b, width) in [(0x1, 16usize), (0x2, 8), (0x4, 8), (0x8, 4)] {
+            if b == bit {
+                break;
+            }
+            if flags & b != 0 {
+                at += width;
+            }
+        }
+        at
+    };
+
+    match value {
+        CellValue::Number(n) if flags & 0x1 != 0 => {
+            let at = value_offset(0x1);
+            if let Some(slot) = storage.get_mut(at..at + 16) {
+                slot.copy_from_slice(&encode_decimal128(*n));
+            }
+        }
+        CellValue::Number(n) if flags & 0x2 != 0 => {
+            let at = value_offset(0x2);
+            if let Some(slot) = storage.get_mut(at..at + 8) {
+                slot.copy_from_slice(&n.to_le_bytes());
+            }
+        }
+        CellValue::Date(seconds) if flags & 0x4 != 0 => {
+            let at = value_offset(0x4);
+            if let Some(slot) = storage.get_mut(at..at + 8) {
+                slot.copy_from_slice(&seconds.to_le_bytes());
+            }
+        }
+        CellValue::Text(text) if flags & 0x8 != 0 => {
+            let key = strings.key_for(text);
+            let at = value_offset(0x8);
+            if let Some(slot) = storage.get_mut(at..at + 4) {
+                slot.copy_from_slice(&key.to_le_bytes());
+            }
+        }
+        _ => {}
+    }
 }
 
 fn encode_string_datalist_archive(strings: &BTreeMap<String, u32>) -> Result<Vec<u8>, Error> {
@@ -189,59 +547,60 @@ fn encode_string_datalist_archive_with_root(
     strings: &BTreeMap<String, u32>,
     root_object_id: u64,
 ) -> Result<Vec<u8>, Error> {
-    let mut messages = Vec::new();
-    messages.push(ProtoMessage::new(vec![
-        ProtoField::varint(
-            1,
-            u64::try_from(strings.len()).map_err(|_| Error::InvalidIwa("datalist size overflow"))?,
-        ),
-        ProtoField::varint(2, 1),
-    ]));
-
-    for (value, key) in strings {
-        messages.push(ProtoMessage::new(vec![
-            ProtoField::varint(1, u64::from(*key)),
-            ProtoField::varint(2, 1),
-            ProtoField::string(3, value),
-        ]));
-    }
-
-    let body = encode_length_delimited_stream(messages)?;
-    let descriptor = IwaArchiveDescriptor {
-        root_object_id: Some(root_object_id),
-        kind_hint: Some(6005),
-        body_hint: Some(u64::try_from(body.len()).map_err(|_| Error::InvalidIwa("body length overflow"))?),
-        object_references: Vec::new(),
-    };
-    let header = IwaPacket::new(descriptor.encode_message()?.encode()?);
+    let body = encode_string_datalist_body(strings)?;
+    let header = synthesize_header(root_object_id, 6005, body.len())?;
     IwaArchive::encode(header, body)
 }
 
-fn encode_length_delimited_stream(messages: Vec<ProtoMessage>) -> Result<Vec<u8>, Error> {
-    let mut body = Vec::new();
-    for message in messages {
-        ProtoField::message(1, message)?.encode_into(&mut body)?;
+/// Encodes a string `TableDataList` body as a single message: `f1` = list type
+/// (1 = string), `f2` = next free key, and a repeated `f3` of `ListEntry`
+/// `{ f1 = key, f2 = refcount, f3 = string }`.
+fn encode_string_datalist_body(strings: &BTreeMap<String, u32>) -> Result<Vec<u8>, Error> {
+    let next_id = strings
+        .values()
+        .copied()
+        .max()
+        .map_or(1, |max| u64::from(max) + 1);
+
+    let mut fields = vec![ProtoField::varint(1, 1), ProtoField::varint(2, next_id)];
+    for (value, key) in strings {
+        fields.push(ProtoField::message(
+            3,
+            ProtoMessage::new(vec![
+                ProtoField::varint(1, u64::from(*key)),
+                ProtoField::varint(2, 1),
+                ProtoField::string(3, value),
+            ]),
+        )?);
     }
-    Ok(body)
+
+    ProtoMessage::new(fields).encode()
 }
 
+/// Encodes one `TileRowInfo`: row index (`f1`), column count (`f2`), the wide
+/// cell-storage buffer (`f6`) and its `u16` offset array (`f7`, `0xffff` = empty).
+///
+/// The row is laid out across exactly `col_count` columns; cells beyond the
+/// row's length (or empty cells) are recorded as empty offset slots.
 fn encode_row_message(
     row_index: usize,
     row: &[CellValue],
+    col_count: usize,
     strings: &BTreeMap<String, u32>,
 ) -> Result<ProtoMessage, Error> {
     let mut storage = Vec::new();
-    let mut offsets = Vec::with_capacity(row.len());
+    let mut offsets = vec![0xffff_u16; TILE_OFFSET_SLOTS];
 
-    for cell in row {
+    for (column, slot) in offsets.iter_mut().take(col_count).enumerate() {
+        let Some(cell) = row.get(column) else {
+            continue;
+        };
         if matches!(cell, CellValue::Empty) {
-            offsets.push(0xffffu16);
             continue;
         }
 
-        let offset = u16::try_from(storage.len())
+        *slot = u16::try_from(storage.len())
             .map_err(|_| Error::InvalidIwa("cell storage offset overflow"))?;
-        offsets.push(offset);
         storage.extend_from_slice(&encode_cell_record(cell, strings)?);
     }
 
@@ -257,22 +616,15 @@ fn encode_row_message(
         ),
         ProtoField::varint(
             2,
-            u64::try_from(row.len()).map_err(|_| Error::InvalidIwa("column count overflow"))?,
+            u64::try_from(col_count).map_err(|_| Error::InvalidIwa("column count overflow"))?,
         ),
-        ProtoField::varint(
-            5,
-            u64::try_from(row.iter().filter(|cell| !matches!(cell, CellValue::Empty)).count())
-                .map_err(|_| Error::InvalidIwa("cell count overflow"))?,
-        ),
+        ProtoField::varint(5, TILE_ROW_STORAGE_VERSION),
         ProtoField::bytes(6, storage),
         ProtoField::bytes(7, offset_bytes),
     ]))
 }
 
-fn encode_cell_record(
-    cell: &CellValue,
-    strings: &BTreeMap<String, u32>,
-) -> Result<Vec<u8>, Error> {
+fn encode_cell_record(cell: &CellValue, strings: &BTreeMap<String, u32>) -> Result<Vec<u8>, Error> {
     let (flags, payload) = match cell {
         CellValue::Empty => return Ok(Vec::new()),
         CellValue::Number(value) => (0x2u32, value.to_le_bytes().to_vec()),
@@ -289,22 +641,6 @@ fn encode_cell_record(
     record.extend_from_slice(&flags.to_le_bytes());
     record.extend_from_slice(&payload);
     Ok(record)
-}
-
-fn generated_document_identifier() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0u128, |duration| duration.as_nanos());
-    let value = format!("{nanos:032x}");
-    format!(
-        "{}-{}-{}-{}-{}",
-        &value[0..8],
-        &value[8..12],
-        &value[12..16],
-        &value[16..20],
-        &value[20..32]
-    )
-    .to_uppercase()
 }
 
 #[cfg(test)]
@@ -352,49 +688,46 @@ mod tests {
     }
 
     #[test]
-    fn scaffold_package_rewrites_summary_table() -> Result<(), Error> {
+    fn scaffold_package_patches_numeric_cells_in_place() -> Result<(), Error> {
+        // The scaffold tile is patched in place: number cells in the caller's
+        // rows overwrite the matching number cells of the real tile (verified to
+        // open in Numbers). We assert those patched values round-trip back out.
         let mut workbook = Workbook::new();
         let mut table = WritableTable::new("Summary");
+        // Row 0 maps onto the tile header row; row 1 onto the first data row,
+        // whose number columns are patched (text/date columns are left intact).
         table.push_row(vec![
-            CellValue::Text("Category".to_owned()),
-            CellValue::Text("Budget".to_owned()),
-            CellValue::Text("Actual".to_owned()),
-            CellValue::Text("Difference".to_owned()),
+            CellValue::Empty,
+            CellValue::Empty,
+            CellValue::Empty,
+            CellValue::Empty,
         ]);
         table.push_row(vec![
-            CellValue::Text("Consulting".to_owned()),
-            CellValue::Number(1000.0),
-            CellValue::Number(850.0),
-            CellValue::Number(150.0),
+            CellValue::Empty,
+            CellValue::Number(1234.5),
+            CellValue::Empty,
+            CellValue::Number(6789.0),
         ]);
         workbook.add_table(table);
 
         let package_bytes = workbook.encode_scaffold_package()?;
         let spreadsheet = crate::numbers::Document::from_bytes(package_bytes)?.spreadsheet()?;
-        let rewritten_table = spreadsheet
-            .tables()
-            .into_iter()
-            .find(|table| {
-                table.rows().iter().any(|row| {
-                    row.cells.iter().any(|cell| {
-                        *cell == CellValue::Text("Consulting".to_owned())
-                    })
-                })
-            })
-            .ok_or(Error::InvalidIwa("rewritten scaffold table not found"))?;
 
-        assert_eq!(
-            rewritten_table.rows()[0].cells[0],
-            CellValue::Text("Category".to_owned())
+        let patched: Vec<f64> = spreadsheet
+            .tables()
+            .iter()
+            .flat_map(|table| table.rows())
+            .flat_map(|row| &row.cells)
+            .filter_map(CellValue::as_number)
+            .collect();
+
+        assert!(
+            patched.iter().any(|n| (n - 1234.5).abs() < 1e-6),
+            "patched value 1234.5 not found in {patched:?}"
         );
-        assert_eq!(
-            rewritten_table.rows()[1].cells,
-            vec![
-                CellValue::Text("Consulting".to_owned()),
-                CellValue::Number(1000.0),
-                CellValue::Number(850.0),
-                CellValue::Number(150.0),
-            ]
+        assert!(
+            patched.iter().any(|n| (n - 6789.0).abs() < 1e-6),
+            "patched value 6789.0 not found in {patched:?}"
         );
 
         Ok(())

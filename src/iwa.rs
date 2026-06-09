@@ -105,7 +105,9 @@ impl IwaArchive {
             let Ok(len) = usize::try_from(len_varint) else {
                 break;
             };
-            let Some(field_end) = cursor.checked_add(len) else { break };
+            let Some(field_end) = cursor.checked_add(len) else {
+                break;
+            };
             let Some(value) = self.body.get(cursor..field_end) else {
                 break;
             };
@@ -151,7 +153,9 @@ impl IwaArchive {
             let Ok(len) = usize::try_from(len_varint) else {
                 return entry_start;
             };
-            let Some(field_end) = cursor.checked_add(len) else { return entry_start };
+            let Some(field_end) = cursor.checked_add(len) else {
+                return entry_start;
+            };
             let Some(value) = self.body.get(cursor..field_end) else {
                 return entry_start;
             };
@@ -269,6 +273,9 @@ impl IwaPacket {
 pub struct IwaArchiveDescriptor {
     pub root_object_id: Option<u64>,
     pub kind_hint: Option<u64>,
+    /// Raw `MessageInfo.version` bytes (`f2`, e.g. `[1, 0, 5]`). Real archives
+    /// always carry this; it must be reproduced or Numbers rejects the file.
+    pub message_version: Option<Vec<u8>>,
     pub body_hint: Option<u64>,
     pub object_references: Vec<IwaObjectReference>,
 }
@@ -277,6 +284,7 @@ impl IwaArchiveDescriptor {
     fn decode(message: &ProtoMessage) -> Result<Self, Error> {
         let root_object_id = message.field(1).and_then(|field| field.value.as_varint());
         let mut kind_hint = None;
+        let mut message_version = None;
         let mut body_hint = None;
         let mut object_references = Vec::new();
 
@@ -284,6 +292,10 @@ impl IwaArchiveDescriptor {
             && let Some(info) = maybe_decode_message(&info_field.value)
         {
             kind_hint = info.field(1).and_then(|field| field.value.as_varint());
+            message_version = info
+                .field(2)
+                .and_then(|field| field.value.as_bytes())
+                .map(<[u8]>::to_vec);
             body_hint = info.field(3).and_then(|field| field.value.as_varint());
 
             for object_field in info.fields_by_number(4) {
@@ -314,6 +326,7 @@ impl IwaArchiveDescriptor {
         Ok(Self {
             root_object_id,
             kind_hint,
+            message_version,
             body_hint,
             object_references,
         })
@@ -329,6 +342,9 @@ impl IwaArchiveDescriptor {
         let mut info_fields = Vec::new();
         if let Some(kind_hint) = self.kind_hint {
             info_fields.push(crate::protobuf::ProtoField::varint(1, kind_hint));
+        }
+        if let Some(version) = &self.message_version {
+            info_fields.push(crate::protobuf::ProtoField::bytes(2, version.clone()));
         }
         if let Some(body_hint) = self.body_hint {
             info_fields.push(crate::protobuf::ProtoField::varint(3, body_hint));
