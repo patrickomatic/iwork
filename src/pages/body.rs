@@ -11,13 +11,13 @@ const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 /// classify titles, headings, paragraphs, or text runs until those Pages object
 /// fields are decoded explicitly.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SemanticDocument {
+pub struct Body {
     title: Option<String>,
     headings: Vec<String>,
     text_fragments: Vec<String>,
 }
 
-impl SemanticDocument {
+impl Body {
     pub(crate) fn from_package(package: &Package) -> Result<Self, Error> {
         let bytes = package.entry_bytes(DOCUMENT_ENTRY)?;
         let archive = IwaArchive::decode(bytes)?;

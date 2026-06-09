@@ -4,11 +4,11 @@ use crate::{Error, Package};
 use std::path::Path;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SemanticPresentation {
-    slides: Vec<SemanticSlide>,
+pub struct Presentation {
+    slides: Vec<Slide>,
 }
 
-impl SemanticPresentation {
+impl Presentation {
     pub(crate) fn from_package(package: &Package) -> Result<Self, Error> {
         let mut slides = package
             .entries()
@@ -22,7 +22,7 @@ impl SemanticPresentation {
             })
             .map(|entry| {
                 let archive = IwaArchive::decode(package.entry_bytes(&entry.path)?)?;
-                Ok(SemanticSlide::from_archive(entry.path.clone(), &archive))
+                Ok(Slide::from_archive(entry.path.clone(), &archive))
             })
             .collect::<Result<Vec<_>, Error>>()?;
 
@@ -37,7 +37,7 @@ impl SemanticPresentation {
         Ok(Self { slides })
     }
 
-    pub fn slides(&self) -> &[SemanticSlide] {
+    pub fn slides(&self) -> &[Slide] {
         &self.slides
     }
 }
@@ -49,7 +49,7 @@ impl SemanticPresentation {
 /// notes, or animations until those Keynote object fields are decoded
 /// explicitly.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SemanticSlide {
+pub struct Slide {
     path: String,
     is_template: bool,
     layout_name: Option<String>,
@@ -58,7 +58,7 @@ pub struct SemanticSlide {
     media_descriptions: Vec<String>,
 }
 
-impl SemanticSlide {
+impl Slide {
     fn from_archive(path: String, archive: &IwaArchive) -> Self {
         let fragments = extract_utf8_fields(archive);
 

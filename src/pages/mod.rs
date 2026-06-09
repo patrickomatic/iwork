@@ -11,9 +11,9 @@ use std::path::Path;
 
 use crate::{DocumentKind, Error, InspectionReport, Package};
 
-mod semantic;
+mod body;
 
-pub use semantic::SemanticDocument;
+pub use body::Body;
 
 #[derive(Debug, Clone)]
 pub struct Document {
@@ -42,8 +42,8 @@ impl Document {
         &self.package
     }
 
-    pub fn document(&self) -> Result<SemanticDocument, Error> {
-        SemanticDocument::from_package(&self.package)
+    pub fn document(&self) -> Result<Body, Error> {
+        Body::from_package(&self.package)
     }
 
     pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {

@@ -11,9 +11,9 @@ use std::path::Path;
 
 use crate::{DocumentKind, Error, InspectionReport, Package};
 
-mod semantic;
+mod presentation;
 
-pub use semantic::{SemanticPresentation, SemanticSlide};
+pub use presentation::{Presentation, Slide};
 
 #[derive(Debug, Clone)]
 pub struct Document {
@@ -42,8 +42,8 @@ impl Document {
         &self.package
     }
 
-    pub fn presentation(&self) -> Result<SemanticPresentation, Error> {
-        SemanticPresentation::from_package(&self.package)
+    pub fn presentation(&self) -> Result<Presentation, Error> {
+        Presentation::from_package(&self.package)
     }
 
     pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
