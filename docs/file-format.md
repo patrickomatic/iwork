@@ -125,6 +125,15 @@ record. Leaf archives (`Tile`, `DataList`, `HeaderStorageBucket`) contain a
 single object whose payload is the whole body; composite archives
 (`Document`, `Metadata`, `CalculationEngine`, `DocumentStylesheet`) pack dozens.
 
+`ArchiveInfo.message_infos` (field 2) is **repeated**: an object's stored form
+can be several concatenated protobuf messages, each with its own `MessageInfo`.
+The cursor between objects must advance by the **sum** of every
+`MessageInfo.length`; `IwaObject::payload` exposes only the first (primary)
+message, the one whose type identifies the object. Skipping only the first
+length lands the cursor mid-payload and silently drops every later object — for
+example the second `TableModel` that `CalculationEngine.iwa` stores after a
+multi-message object.
+
 The walk is self-checking: because each record's length determines where the
 next `ArchiveInfo` begins, a wrong payload length would desynchronize and corrupt
 every later record. A stream that decodes cleanly to the final byte is therefore

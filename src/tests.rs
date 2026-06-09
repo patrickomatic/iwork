@@ -261,6 +261,18 @@ fn iwa_archive_decodes_full_object_stream() -> Result<(), Error> {
     assert_eq!(tile_objects[0].message_type, Some(6002));
     assert_eq!(tile_objects[0].payload, tile.body());
 
+    // CalculationEngine.iwa contains multi-message objects (ArchiveInfo with a
+    // repeated message_infos). The walk must skip the sum of every message
+    // length, otherwise it desynchronizes and drops later objects — including
+    // the second TableModel (type 6001) that personal_budget stores there.
+    let calc = IwaArchive::decode(package.entry_bytes("Index/CalculationEngine.iwa")?)?;
+    let table_models = calc
+        .objects()
+        .iter()
+        .filter(|object| object.message_type == Some(6001))
+        .count();
+    assert_eq!(table_models, 2, "both TableModels must survive the walk");
+
     Ok(())
 }
 
@@ -562,6 +574,25 @@ fn table_model_geometry_matches_decoded_tile_dimensions() -> Result<(), Error> {
     // declared geometry must match the dimensions the tile decoder recovers.
     let spreadsheet = numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?.spreadsheet()?;
     let models = spreadsheet.table_models();
+
+    // personal_budget has two tables; both models must be recovered (the second
+    // lives past a multi-message object in CalculationEngine.iwa).
+    let mut named: Vec<(String, u32, u32)> = models
+        .iter()
+        .filter_map(|model| {
+            model
+                .name()
+                .map(|name| (name.to_owned(), model.row_count(), model.column_count()))
+        })
+        .collect();
+    named.sort();
+    assert_eq!(
+        named,
+        vec![
+            ("Summary by Category".to_owned(), 11, 4),
+            ("Transactions".to_owned(), 27, 4),
+        ]
+    );
 
     let summary = models
         .iter()
