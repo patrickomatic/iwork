@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::CellValue;
-use crate::iwa::{IwaArchive, IwaArchiveDescriptor, IwaPacket};
+use crate::iwa::{IwaArchive, IwaArchiveDescriptor, IwaObjectReference, IwaPacket};
 use crate::protobuf::{ProtoField, ProtoMessage};
 use crate::{Error, PackageWriter};
 
@@ -43,12 +43,33 @@ impl Workbook {
         let mut writer = PackageWriter::new();
         writer
             .add_entry("Metadata/Properties.plist", properties_plist())
-            .add_entry("Index/Document.iwa", encode_empty_archive(1001, 1)?)
-            .add_entry("Index/DocumentMetadata.iwa", encode_empty_archive(1002, 2)?)
-            .add_entry("Index/Metadata.iwa", encode_empty_archive(1003, 3)?)
+            .add_entry("Metadata/DocumentIdentifier", document_identifier())
+            .add_entry(
+                "Metadata/BuildVersionHistory.plist",
+                build_version_history_plist(),
+            )
+            .add_entry("Index/Document.iwa", encode_document_archive()?)
+            .add_entry(
+                "Index/DocumentMetadata.iwa",
+                encode_document_metadata_archive()?,
+            )
+            .add_entry("Index/Metadata.iwa", encode_metadata_archive()?)
+            .add_entry(
+                "Index/ObjectContainer.iwa",
+                encode_object_container_archive()?,
+            )
+            .add_entry(
+                "Index/CalculationEngine.iwa",
+                encode_calculation_engine_archive()?,
+            )
+            .add_entry("Index/ViewState.iwa", encode_view_state_archive()?)
+            .add_entry(
+                "Index/AnnotationAuthorStorage.iwa",
+                encode_empty_archive(80, 11009)?,
+            )
             .add_entry(
                 "Index/DocumentStylesheet.iwa",
-                encode_empty_archive(1004, 4)?,
+                encode_document_stylesheet_archive()?,
             );
 
         for archive in self.encode_table_archives()? {
@@ -148,6 +169,15 @@ const TILE_ROW_STORAGE_VERSION: u64 = 5;
 /// `MessageInfo.version` triple (`f2`) carried by every real archive header.
 const ARCHIVE_VERSION: [u8; 3] = [1, 0, 5];
 
+const DOCUMENT_ROOT_ID: u64 = 1;
+const METADATA_ROOT_ID: u64 = 2;
+const OBJECT_CONTAINER_ROOT_ID: u64 = 61;
+const DOCUMENT_METADATA_ROOT_ID: u64 = 71;
+const ANNOTATION_AUTHOR_STORAGE_ROOT_ID: u64 = 80;
+const CALCULATION_ENGINE_ROOT_ID: u64 = 1_000;
+const VIEW_STATE_ROOT_ID: u64 = 1_001;
+const STYLESHEET_ROOT_ID: u64 = 1_002;
+
 fn properties_plist() -> Vec<u8> {
     br#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -171,9 +201,185 @@ fn properties_plist() -> Vec<u8> {
     .to_vec()
 }
 
+fn document_identifier() -> Vec<u8> {
+    b"iwork-rs-generated-document".to_vec()
+}
+
+fn build_version_history_plist() -> Vec<u8> {
+    br#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+  <dict>
+    <key>app</key>
+    <string>iwork-rs</string>
+    <key>version</key>
+    <string>0.1.0</string>
+  </dict>
+</array>
+</plist>
+"#
+    .to_vec()
+}
+
 fn encode_empty_archive(root_object_id: u64, kind: u64) -> Result<Vec<u8>, Error> {
     let header = synthesize_header(root_object_id, kind, 0)?;
     IwaArchive::encode(header, Vec::new())
+}
+
+fn encode_document_archive() -> Result<Vec<u8>, Error> {
+    let body = encode_document_body()?;
+    let header = synthesize_header_with_references(
+        DOCUMENT_ROOT_ID,
+        1,
+        body.len(),
+        vec![IwaObjectReference {
+            object_id: Some(METADATA_ROOT_ID),
+            kind_hint: Some(3),
+            state_hint: Some(0),
+        }],
+    )?;
+    IwaArchive::encode(header, body)
+}
+
+fn encode_document_body() -> Result<Vec<u8>, Error> {
+    let body_message = ProtoMessage::new(vec![
+        ProtoField::bytes(1, object_reference(CALCULATION_ENGINE_ROOT_ID)?),
+        ProtoField::bytes(4, object_reference(CALCULATION_ENGINE_ROOT_ID)?),
+        ProtoField::bytes(5, object_reference(VIEW_STATE_ROOT_ID)?),
+        ProtoField::bytes(6, object_reference(STYLESHEET_ROOT_ID)?),
+        ProtoField::bytes(9, b"Application/Blank/Traditional".to_vec()),
+        ProtoField::bytes(12, object_reference(ANNOTATION_AUTHOR_STORAGE_ROOT_ID)?),
+    ]);
+
+    ProtoMessage::new(vec![
+        ProtoField::message(
+            1,
+            &ProtoMessage::new(vec![ProtoField::varint(1, CALCULATION_ENGINE_ROOT_ID)]),
+        )?,
+        ProtoField::message(
+            1,
+            &ProtoMessage::new(vec![ProtoField::varint(1, VIEW_STATE_ROOT_ID)]),
+        )?,
+        ProtoField::message(
+            1,
+            &ProtoMessage::new(vec![ProtoField::varint(1, STYLESHEET_ROOT_ID)]),
+        )?,
+        ProtoField::message(4, &body_message)?,
+    ])
+    .encode()
+}
+
+fn encode_document_metadata_archive() -> Result<Vec<u8>, Error> {
+    let body = ProtoMessage::new(vec![
+        ProtoField::varint(1, 0),
+        ProtoField::bytes(3, Vec::new()),
+    ])
+    .encode()?;
+    let header = synthesize_header_with_references(
+        DOCUMENT_METADATA_ROOT_ID,
+        11011,
+        body.len(),
+        vec![IwaObjectReference {
+            object_id: Some(DOCUMENT_ROOT_ID),
+            kind_hint: Some(3),
+            state_hint: Some(1),
+        }],
+    )?;
+    IwaArchive::encode(header, body)
+}
+
+fn encode_metadata_archive() -> Result<Vec<u8>, Error> {
+    let body = ProtoMessage::new(vec![
+        ProtoField::varint(1, 0),
+        ProtoField::bytes(2, object_reference(DOCUMENT_ROOT_ID)?),
+        ProtoField::bytes(3, object_reference(DOCUMENT_METADATA_ROOT_ID)?),
+        ProtoField::bytes(4, object_reference(OBJECT_CONTAINER_ROOT_ID)?),
+    ])
+    .encode()?;
+    let header = synthesize_header_with_references(
+        METADATA_ROOT_ID,
+        11006,
+        body.len(),
+        vec![IwaObjectReference {
+            object_id: Some(DOCUMENT_ROOT_ID),
+            kind_hint: Some(1),
+            state_hint: Some(1),
+        }],
+    )?;
+    IwaArchive::encode(header, body)
+}
+
+fn encode_object_container_archive() -> Result<Vec<u8>, Error> {
+    let body = ProtoMessage::new(vec![
+        ProtoField::varint(1, 0),
+        ProtoField::bytes(2, object_reference(DOCUMENT_ROOT_ID)?),
+    ])
+    .encode()?;
+    let header = synthesize_header(OBJECT_CONTAINER_ROOT_ID, 11008, body.len())?;
+    IwaArchive::encode(header, body)
+}
+
+fn encode_calculation_engine_archive() -> Result<Vec<u8>, Error> {
+    let body =
+        ProtoMessage::new(vec![ProtoField::varint(1, 0), ProtoField::varint(5, 0)]).encode()?;
+    let header = synthesize_header_with_references(
+        CALCULATION_ENGINE_ROOT_ID,
+        4000,
+        body.len(),
+        vec![IwaObjectReference {
+            object_id: Some(DOCUMENT_ROOT_ID),
+            kind_hint: Some(1),
+            state_hint: Some(0),
+        }],
+    )?;
+    IwaArchive::encode(header, body)
+}
+
+fn encode_view_state_archive() -> Result<Vec<u8>, Error> {
+    let body = ProtoMessage::new(vec![
+        ProtoField::varint(1, 0),
+        ProtoField::bytes(2, object_reference(DOCUMENT_ROOT_ID)?),
+    ])
+    .encode()?;
+    let header = synthesize_header(VIEW_STATE_ROOT_ID, 11012, body.len())?;
+    IwaArchive::encode(header, body)
+}
+
+fn encode_document_stylesheet_archive() -> Result<Vec<u8>, Error> {
+    let body = ProtoMessage::new(vec![
+        ProtoField::message(
+            2,
+            &ProtoMessage::new(vec![
+                ProtoField::string(1, "Normal"),
+                ProtoField::bytes(2, object_reference(STYLESHEET_ROOT_ID)?),
+            ]),
+        )?,
+        ProtoField::message(
+            2,
+            &ProtoMessage::new(vec![
+                ProtoField::string(1, "Bold"),
+                ProtoField::bytes(2, object_reference(STYLESHEET_ROOT_ID + 1)?),
+                ProtoField::message(11, &ProtoMessage::new(vec![ProtoField::varint(1, 1)]))?,
+            ]),
+        )?,
+    ])
+    .encode()?;
+    let header = synthesize_header_with_references(
+        STYLESHEET_ROOT_ID,
+        2,
+        body.len(),
+        vec![IwaObjectReference {
+            object_id: Some(DOCUMENT_ROOT_ID),
+            kind_hint: Some(1),
+            state_hint: Some(0),
+        }],
+    )?;
+    IwaArchive::encode(header, body)
+}
+
+fn object_reference(object_id: u64) -> Result<Vec<u8>, Error> {
+    ProtoMessage::new(vec![ProtoField::varint(1, object_id)]).encode()
 }
 
 fn encode_tile_archive(
@@ -228,6 +434,15 @@ fn encode_tile_body(
 
 /// Builds an archive header packet for a freshly synthesized body.
 fn synthesize_header(root_object_id: u64, kind: u64, body_len: usize) -> Result<IwaPacket, Error> {
+    synthesize_header_with_references(root_object_id, kind, body_len, Vec::new())
+}
+
+fn synthesize_header_with_references(
+    root_object_id: u64,
+    kind: u64,
+    body_len: usize,
+    object_references: Vec<IwaObjectReference>,
+) -> Result<IwaPacket, Error> {
     let descriptor = IwaArchiveDescriptor {
         root_object_id: Some(root_object_id),
         kind_hint: Some(kind),
@@ -235,7 +450,7 @@ fn synthesize_header(root_object_id: u64, kind: u64, body_len: usize) -> Result<
         body_hint: Some(
             u64::try_from(body_len).map_err(|_| Error::InvalidIwa("body length overflow"))?,
         ),
-        object_references: Vec::new(),
+        object_references,
     };
     Ok(IwaPacket::new(descriptor.encode_message()?.encode()?))
 }
@@ -291,18 +506,26 @@ fn encode_row_message(
 ) -> Result<ProtoMessage, Error> {
     let mut storage = Vec::new();
     let mut offsets = vec![0xffff_u16; TILE_OFFSET_SLOTS];
+    let mut legacy_columns = Vec::new();
 
     for (column, slot) in offsets.iter_mut().take(col_count).enumerate() {
         let Some(cell) = row.get(column) else {
+            legacy_columns.extend_from_slice(&legacy_column_record(
+                column,
+                0xffff,
+                &CellValue::Empty,
+            )?);
             continue;
         };
         if matches!(cell, CellValue::Empty) {
+            legacy_columns.extend_from_slice(&legacy_column_record(column, 0xffff, cell)?);
             continue;
         }
 
         *slot = u16::try_from(storage.len())
             .map_err(|_| Error::InvalidIwa("cell storage offset overflow"))?;
         storage.extend_from_slice(&encode_cell_record(cell, strings)?);
+        legacy_columns.extend_from_slice(&legacy_column_record(column, *slot, cell)?);
     }
 
     let mut offset_bytes = Vec::with_capacity(offsets.len() * 2);
@@ -319,10 +542,26 @@ fn encode_row_message(
             2,
             u64::try_from(col_count).map_err(|_| Error::InvalidIwa("column count overflow"))?,
         ),
+        ProtoField::bytes(3, legacy_columns),
+        ProtoField::bytes(4, offset_bytes.clone()),
         ProtoField::varint(5, TILE_ROW_STORAGE_VERSION),
         ProtoField::bytes(6, storage),
         ProtoField::bytes(7, offset_bytes),
     ]))
+}
+
+fn legacy_column_record(column: usize, offset: u16, cell: &CellValue) -> Result<[u8; 12], Error> {
+    let mut record = [0u8; 12];
+    let column = u16::try_from(column).map_err(|_| Error::InvalidIwa("column index overflow"))?;
+    record[0..2].copy_from_slice(&column.to_le_bytes());
+    record[2..4].copy_from_slice(&offset.to_le_bytes());
+    record[4] = match cell {
+        CellValue::Empty => 0,
+        CellValue::Number(_) => 2,
+        CellValue::Date(_) => 4,
+        CellValue::Text(_) => 8,
+    };
+    Ok(record)
 }
 
 fn encode_cell_record(cell: &CellValue, strings: &BTreeMap<String, u32>) -> Result<Vec<u8>, Error> {
@@ -375,6 +614,23 @@ mod tests {
         assert!(strings.values().any(|value| value == "Utilities"));
 
         let tile_archive = IwaArchive::decode(&archives[0].tile)?;
+        let tile_body = ProtoMessage::decode(tile_archive.body())?;
+        let first_row = tile_body
+            .field(5)
+            .and_then(|field| field.value.as_message().ok())
+            .flatten()
+            .ok_or(Error::InvalidIwa("missing generated row message"))?;
+        assert!(
+            first_row
+                .field(3)
+                .and_then(|f| f.value.as_bytes())
+                .is_some()
+        );
+        assert_eq!(
+            first_row.field(4).and_then(|f| f.value.as_bytes()),
+            first_row.field(7).and_then(|f| f.value.as_bytes())
+        );
+
         let decoded = Table::from_tile(&tile_archive, &strings);
         assert_eq!(decoded.rows().len(), 2);
         assert_eq!(
@@ -401,6 +657,27 @@ mod tests {
         assert_eq!(
             report.properties.document_uuid.as_deref(),
             Some("iwork-rs-generated-document")
+        );
+        assert!(
+            document
+                .package()
+                .entries()
+                .iter()
+                .any(|entry| entry.path == "Index/ObjectContainer.iwa")
+        );
+        assert!(
+            document
+                .package()
+                .entries()
+                .iter()
+                .any(|entry| entry.path == "Index/CalculationEngine.iwa")
+        );
+        assert!(
+            document
+                .package()
+                .entries()
+                .iter()
+                .any(|entry| entry.path == "Index/ViewState.iwa")
         );
 
         let spreadsheet = document.spreadsheet()?;
