@@ -85,6 +85,81 @@ impl IwaArchive {
         &self.body
     }
 
+    /// Decodes every object stored in this archive.
+    ///
+    /// A `.iwa` archive is a stream of `(ArchiveInfo, payload)` records: the
+    /// leading `ArchiveInfo` is carried in [`IwaArchive::header`] and its payload
+    /// is the first `body_hint` bytes of [`IwaArchive::body`]; any remaining
+    /// objects follow as `varint(info_len) ArchiveInfo payload` records. Each
+    /// `ArchiveInfo` shares the [`IwaArchiveDescriptor`] shape, so the same
+    /// decoder names the object's type and length.
+    ///
+    /// The walk is tolerant: it stops at the first record it cannot decode and
+    /// returns the objects recovered so far rather than failing.
+    pub fn objects(&self) -> Vec<IwaObject> {
+        let mut objects = Vec::new();
+
+        let first_len = self
+            .descriptor
+            .body_hint
+            .and_then(|len| usize::try_from(len).ok())
+            .unwrap_or(self.body.len())
+            .min(self.body.len());
+        objects.push(IwaObject {
+            identifier: self.descriptor.root_object_id,
+            message_type: self.descriptor.kind_hint,
+            version: self.descriptor.message_version.clone(),
+            references: self.descriptor.object_references.clone(),
+            payload: self.body[..first_len].to_vec(),
+        });
+
+        let mut cursor = first_len;
+        while cursor < self.body.len() {
+            let Ok(info_len_varint) = read_varint(&self.body, &mut cursor) else {
+                break;
+            };
+            let Ok(info_len) = usize::try_from(info_len_varint) else {
+                break;
+            };
+            let Some(info_end) = cursor.checked_add(info_len) else {
+                break;
+            };
+            let Some(info_bytes) = self.body.get(cursor..info_end) else {
+                break;
+            };
+            cursor = info_end;
+
+            let Ok(info_message) = ProtoMessage::decode(info_bytes) else {
+                break;
+            };
+            let Ok(descriptor) = IwaArchiveDescriptor::decode(&info_message) else {
+                break;
+            };
+
+            let payload_len = descriptor
+                .body_hint
+                .and_then(|len| usize::try_from(len).ok())
+                .unwrap_or(0);
+            let Some(payload_end) = cursor.checked_add(payload_len) else {
+                break;
+            };
+            let Some(payload) = self.body.get(cursor..payload_end) else {
+                break;
+            };
+            cursor = payload_end;
+
+            objects.push(IwaObject {
+                identifier: descriptor.root_object_id,
+                message_type: descriptor.kind_hint,
+                version: descriptor.message_version,
+                references: descriptor.object_references,
+                payload: payload.to_vec(),
+            });
+        }
+
+        objects
+    }
+
     pub fn leading_object_references(&self) -> Vec<u64> {
         let mut references = Vec::new();
         let mut cursor = 0;
@@ -418,6 +493,21 @@ impl IwaObjectReference {
         }
         Ok(ProtoMessage::new(fields))
     }
+}
+
+/// A single object decoded from an archive's `(ArchiveInfo, payload)` stream.
+///
+/// `message_type` is the Apple iWork message type identifier (the same value
+/// reported as the archive descriptor's `kind_hint`); see
+/// [`crate::numbers::message_type_name`] for the known mapping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IwaObject {
+    pub identifier: Option<u64>,
+    pub message_type: Option<u64>,
+    /// Raw `MessageInfo.version` bytes, preserved for faithful re-encoding.
+    pub version: Option<Vec<u8>>,
+    pub references: Vec<IwaObjectReference>,
+    pub payload: Vec<u8>,
 }
 
 fn decode_archive_stream(bytes: &[u8]) -> Result<(IwaPacket, Vec<u8>), Error> {
