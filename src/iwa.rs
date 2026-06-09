@@ -210,11 +210,15 @@ impl IwaArchive {
     /// other readers assume.
     pub fn encode(header: IwaPacket, body: Vec<u8>) -> Result<Vec<u8>, Error> {
         let mut archive_bytes = Vec::new();
-        let header_len = u64::try_from(header.bytes.len())
+        let IwaPacket {
+            bytes: header_bytes,
+            ..
+        } = header;
+        let header_len = u64::try_from(header_bytes.len())
             .map_err(|_| Error::InvalidIwa("packet length overflow"))?;
         push_varint(&mut archive_bytes, header_len);
-        archive_bytes.extend_from_slice(&header.bytes);
-        archive_bytes.extend_from_slice(&body);
+        archive_bytes.extend_from_slice(&header_bytes);
+        archive_bytes.extend(body);
 
         let mut out = Vec::new();
         for window in archive_bytes.chunks(IWA_CHUNK_SIZE) {
@@ -350,15 +354,13 @@ impl IwaArchiveDescriptor {
             info_fields.push(crate::protobuf::ProtoField::varint(3, body_hint));
         }
         for object_reference in &self.object_references {
-            info_fields.push(crate::protobuf::ProtoField::message(
-                4,
-                object_reference.encode_message()?,
-            )?);
+            let message = object_reference.encode_message()?;
+            info_fields.push(crate::protobuf::ProtoField::message(4, &message)?);
         }
         if !info_fields.is_empty() {
             fields.push(crate::protobuf::ProtoField::message(
                 2,
-                ProtoMessage::new(info_fields),
+                &ProtoMessage::new(info_fields),
             )?);
         }
 
@@ -550,7 +552,10 @@ fn compress_snappy_literal(bytes: &[u8]) -> Result<Vec<u8>, Error> {
     let mut cursor = 0usize;
     while cursor < bytes.len() {
         let chunk_len = (bytes.len() - cursor).min(60);
-        out.push(((chunk_len - 1) << 2) as u8);
+        out.push(
+            u8::try_from((chunk_len - 1) << 2)
+                .map_err(|_| Error::InvalidIwa("snappy literal tag overflow"))?,
+        );
         out.extend_from_slice(&bytes[cursor..cursor + chunk_len]);
         cursor += chunk_len;
     }

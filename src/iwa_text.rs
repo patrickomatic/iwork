@@ -154,7 +154,7 @@ mod tests {
             ProtoField::string(3, "Visible Text"),
             ProtoField::message(
                 4,
-                ProtoMessage::new(vec![ProtoField::string(2, "Nested Text")]),
+                &ProtoMessage::new(vec![ProtoField::string(2, "Nested Text")]),
             )?,
         ])
         .encode()?;

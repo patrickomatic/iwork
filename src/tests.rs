@@ -123,7 +123,7 @@ fn protobuf_messages_round_trip_through_encoder() -> Result<(), Error> {
         ProtoField::fixed32(2, 1234),
         ProtoField::fixed64(3, 5678),
         ProtoField::string(4, "hello"),
-        ProtoField::message(5, nested)?,
+        ProtoField::message(5, &nested)?,
     ]);
 
     let decoded = ProtoMessage::decode(&message.encode()?)?;

@@ -155,7 +155,7 @@ fn encode_tile_body(
     for (row_index, row) in rows.iter().enumerate() {
         fields.push(ProtoField::message(
             5,
-            encode_row_message(row_index, row, col_count, strings)?,
+            &encode_row_message(row_index, row, col_count, strings)?,
         )?);
     }
     fields.push(ProtoField::varint(6, 5));
@@ -205,7 +205,7 @@ fn encode_string_datalist_body(strings: &BTreeMap<String, u32>) -> Result<Vec<u8
     for (value, key) in strings {
         fields.push(ProtoField::message(
             3,
-            ProtoMessage::new(vec![
+            &ProtoMessage::new(vec![
                 ProtoField::varint(1, u64::from(*key)),
                 ProtoField::varint(2, 1),
                 ProtoField::string(3, value),

@@ -104,7 +104,7 @@ impl ProtoField {
         Self::bytes(number, value.into().into_bytes())
     }
 
-    pub fn message(number: u32, value: ProtoMessage) -> Result<Self, Error> {
+    pub fn message(number: u32, value: &ProtoMessage) -> Result<Self, Error> {
         Ok(Self::bytes(number, value.encode()?))
     }
 

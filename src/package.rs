@@ -60,17 +60,12 @@ struct PackageEntryWriter {
     contents: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PackageSupport {
     SupportedDirectIndexEntries,
     UnsupportedLegacyIndexZip,
+    #[default]
     UnsupportedUnknownLayout,
-}
-
-impl Default for PackageSupport {
-    fn default() -> Self {
-        Self::UnsupportedUnknownLayout
-    }
 }
 
 impl Package {
@@ -282,16 +277,16 @@ impl PackageWriter {
         let mut offsets = Vec::with_capacity(self.entries.len());
 
         for entry in &self.entries {
-            let local_header_offset = u32::try_from(out.len())
-                .map_err(|_| Error::InvalidCentralDirectory)?;
+            let local_header_offset =
+                u32::try_from(out.len()).map_err(|_| Error::InvalidCentralDirectory)?;
             offsets.push(local_header_offset);
 
             let path_bytes = entry.path.as_bytes();
             let crc32 = crc32(&entry.contents);
-            let size = u32::try_from(entry.contents.len())
-                .map_err(|_| Error::InvalidCentralDirectory)?;
-            let path_len = u16::try_from(path_bytes.len())
-                .map_err(|_| Error::InvalidCentralDirectory)?;
+            let size =
+                u32::try_from(entry.contents.len()).map_err(|_| Error::InvalidCentralDirectory)?;
+            let path_len =
+                u16::try_from(path_bytes.len()).map_err(|_| Error::InvalidCentralDirectory)?;
 
             out.extend_from_slice(&LOCAL_FILE_SIGNATURE.to_le_bytes());
             out.extend_from_slice(&20u16.to_le_bytes());
@@ -308,16 +303,16 @@ impl PackageWriter {
             out.extend_from_slice(&entry.contents);
         }
 
-        let central_directory_offset = u32::try_from(out.len())
-            .map_err(|_| Error::InvalidCentralDirectory)?;
+        let central_directory_offset =
+            u32::try_from(out.len()).map_err(|_| Error::InvalidCentralDirectory)?;
 
         for (entry, offset) in self.entries.iter().zip(offsets) {
             let path_bytes = entry.path.as_bytes();
             let crc32 = crc32(&entry.contents);
-            let size = u32::try_from(entry.contents.len())
-                .map_err(|_| Error::InvalidCentralDirectory)?;
-            let path_len = u16::try_from(path_bytes.len())
-                .map_err(|_| Error::InvalidCentralDirectory)?;
+            let size =
+                u32::try_from(entry.contents.len()).map_err(|_| Error::InvalidCentralDirectory)?;
+            let path_len =
+                u16::try_from(path_bytes.len()).map_err(|_| Error::InvalidCentralDirectory)?;
 
             central_directory.extend_from_slice(&CENTRAL_DIRECTORY_SIGNATURE.to_le_bytes());
             central_directory.extend_from_slice(&20u16.to_le_bytes());
@@ -339,10 +334,10 @@ impl PackageWriter {
             central_directory.extend_from_slice(path_bytes);
         }
 
-        let central_directory_size = u32::try_from(central_directory.len())
-            .map_err(|_| Error::InvalidCentralDirectory)?;
-        let entry_count = u16::try_from(self.entries.len())
-            .map_err(|_| Error::InvalidCentralDirectory)?;
+        let central_directory_size =
+            u32::try_from(central_directory.len()).map_err(|_| Error::InvalidCentralDirectory)?;
+        let entry_count =
+            u16::try_from(self.entries.len()).map_err(|_| Error::InvalidCentralDirectory)?;
 
         out.extend_from_slice(&central_directory);
         out.extend_from_slice(&EOCD_SIGNATURE.to_le_bytes());
@@ -383,15 +378,17 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, Error> {
 
 fn inflate_raw(bytes: &[u8], expected_len: usize) -> Result<Vec<u8>, ()> {
     let mut output = vec![0u8; expected_len];
-    let mut stream = ZStream::default();
-    stream.next_in = bytes.as_ptr();
-    stream.avail_in = u32::try_from(bytes.len()).map_err(|_| ())?;
-    stream.next_out = output.as_mut_ptr();
-    stream.avail_out = u32::try_from(output.len()).map_err(|_| ())?;
+    let mut stream = ZStream {
+        next_in: bytes.as_ptr(),
+        avail_in: u32::try_from(bytes.len()).map_err(|_| ())?,
+        next_out: output.as_mut_ptr(),
+        avail_out: u32::try_from(output.len()).map_err(|_| ())?,
+        ..ZStream::default()
+    };
 
     let init_code = unsafe {
         inflateInit2_(
-            &mut stream,
+            &raw mut stream,
             -MAX_WBITS,
             zlibVersion(),
             i32::try_from(std::mem::size_of::<ZStream>()).map_err(|_| ())?,
@@ -401,8 +398,8 @@ fn inflate_raw(bytes: &[u8], expected_len: usize) -> Result<Vec<u8>, ()> {
         return Err(());
     }
 
-    let inflate_code = unsafe { inflate(&mut stream, Z_FINISH) };
-    let end_code = unsafe { inflateEnd(&mut stream) };
+    let inflate_code = unsafe { inflate(&raw mut stream, Z_FINISH) };
+    let end_code = unsafe { inflateEnd(&raw mut stream) };
 
     if inflate_code != Z_STREAM_END || end_code != Z_OK {
         return Err(());
