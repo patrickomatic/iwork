@@ -89,22 +89,34 @@ impl IwaArchive {
     ///
     /// A `.iwa` archive is a stream of `(ArchiveInfo, payload)` records: the
     /// leading `ArchiveInfo` is carried in [`IwaArchive::header`] and its payload
-    /// is the first `body_hint` bytes of [`IwaArchive::body`]; any remaining
-    /// objects follow as `varint(info_len) ArchiveInfo payload` records. Each
-    /// `ArchiveInfo` shares the [`IwaArchiveDescriptor`] shape, so the same
-    /// decoder names the object's type and length.
+    /// begins [`IwaArchive::body`]; any remaining objects follow as
+    /// `varint(info_len) ArchiveInfo payload` records. Each `ArchiveInfo` shares
+    /// the [`IwaArchiveDescriptor`] shape, so the same decoder names the object's
+    /// type, version, and references.
+    ///
+    /// `ArchiveInfo.message_infos` (field 2) is **repeated**: an object's stored
+    /// form can be several concatenated protobuf messages. The cursor therefore
+    /// advances by the sum of every `MessageInfo.length`, while [`IwaObject::payload`]
+    /// exposes only the first (primary) message — the one whose type identifies
+    /// the object. Skipping only the first length would desynchronize the stream
+    /// and silently drop every later object.
     ///
     /// The walk is tolerant: it stops at the first record it cannot decode and
     /// returns the objects recovered so far rather than failing.
     pub fn objects(&self) -> Vec<IwaObject> {
         let mut objects = Vec::new();
 
-        let first_len = self
-            .descriptor
-            .body_hint
-            .and_then(|len| usize::try_from(len).ok())
-            .unwrap_or(self.body.len())
-            .min(self.body.len());
+        // The leading object's ArchiveInfo is the header packet; its descriptor
+        // is already decoded, but the header message also gives the full
+        // multi-message payload span.
+        let (first_len, total_len) = self
+            .header
+            .decode_message()
+            .ok()
+            .map_or((self.body.len(), self.body.len()), |message| {
+                message_info_lengths(&message)
+            });
+        let first_len = first_len.min(self.body.len());
         objects.push(IwaObject {
             identifier: self.descriptor.root_object_id,
             message_type: self.descriptor.kind_hint,
@@ -113,7 +125,7 @@ impl IwaArchive {
             payload: self.body[..first_len].to_vec(),
         });
 
-        let mut cursor = first_len;
+        let mut cursor = total_len.min(self.body.len());
         while cursor < self.body.len() {
             let Ok(info_len_varint) = read_varint(&self.body, &mut cursor) else {
                 break;
@@ -136,17 +148,20 @@ impl IwaArchive {
                 break;
             };
 
-            let payload_len = descriptor
-                .body_hint
-                .and_then(|len| usize::try_from(len).ok())
-                .unwrap_or(0);
-            let Some(payload_end) = cursor.checked_add(payload_len) else {
+            let (first_len, total_len) = message_info_lengths(&info_message);
+            let Some(payload_end) = cursor.checked_add(first_len) else {
                 break;
             };
             let Some(payload) = self.body.get(cursor..payload_end) else {
                 break;
             };
-            cursor = payload_end;
+            let Some(next_cursor) = cursor.checked_add(total_len) else {
+                break;
+            };
+            if next_cursor > self.body.len() {
+                break;
+            }
+            cursor = next_cursor;
 
             objects.push(IwaObject {
                 identifier: descriptor.root_object_id,
@@ -441,6 +456,30 @@ impl IwaArchiveDescriptor {
 
         Ok(ProtoMessage::new(fields))
     }
+}
+
+/// Returns `(first_message_len, total_payload_len)` for an `ArchiveInfo`.
+///
+/// `ArchiveInfo.message_infos` (field 2) is repeated; each `MessageInfo` carries
+/// its serialized length in field 3. The first message is the object's primary
+/// message; the total span (which the object-stream cursor must skip) is the sum
+/// over all messages.
+fn message_info_lengths(archive_info: &ProtoMessage) -> (usize, usize) {
+    let mut first = 0usize;
+    let mut total = 0usize;
+    for (index, info_field) in archive_info.fields_by_number(2).enumerate() {
+        let Some(length) = maybe_decode_message(&info_field.value)
+            .and_then(|info| info.field(3).and_then(|field| field.value.as_varint()))
+            .and_then(|length| usize::try_from(length).ok())
+        else {
+            continue;
+        };
+        if index == 0 {
+            first = length;
+        }
+        total = total.saturating_add(length);
+    }
+    (first, total)
 }
 
 fn decode_object_id_hint(value: &crate::protobuf::ProtoValue) -> Result<Option<u64>, Error> {
