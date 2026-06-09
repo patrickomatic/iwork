@@ -123,11 +123,17 @@ The Numbers reader currently follows a two-stage model:
 - `Spreadsheet::table_archives()` exposes the raw `Index/Tables/*.iwa` archives
 - `Spreadsheet::tables()` resolves those archives into decoded rows and [`CellValue`](src/numbers/table.rs) values
 
-The write-side Numbers support is currently lower level:
+The write-side Numbers support can create minimal crate-readable `.numbers`
+packages:
 
 - `numbers::Workbook` and `numbers::WritableTable` let you assemble table rows from scratch
 - `Workbook::encode_table_archives()` emits fresh `Tile` and string `DataList` archives for scalar cells
-- full `.numbers` package synthesis is not implemented yet; the remaining work is generating the document/object graph (`Document`, `Metadata`, `CalculationEngine`, `ViewState`, ...), stylesheet links, and table references without using a fixture as a seed
+- `Workbook::to_numbers_bytes()` and `Workbook::save_numbers()` wrap those archives in a ZIP package with minimal metadata and core IWA members
+
+The generated package is currently intended for round-tripping through this
+crate. Full Apple Numbers compatibility still requires a complete document
+object graph, stylesheet links, table references, view state, and calculation
+metadata.
 
 The current parser relies on these reverse-engineered format details:
 
