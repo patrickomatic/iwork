@@ -1,5 +1,12 @@
-use iwork::ProtoValue;
-use iwork::numbers;
+use std::fmt::Write as _;
+
+use iwork::numbers::{self, message_type_name};
+use protorev::{Message, dump_message};
+
+/// Recursion depth for the protobuf dumps.
+const DUMP_DEPTH: usize = 6;
+/// Cap on per-archive object payload dumps so composite archives stay readable.
+const MAX_OBJECT_DUMPS: usize = 6;
 
 fn main() -> Result<(), iwork::Error> {
     let mut args = std::env::args().skip(1);
@@ -12,13 +19,13 @@ fn main() -> Result<(), iwork::Error> {
     let package = document.package();
 
     if filter.is_none() {
-        inspect_archive("Document", spreadsheet.document())?;
-        inspect_archive("DocumentMetadata", spreadsheet.document_metadata())?;
-        inspect_archive("Metadata", spreadsheet.metadata())?;
+        inspect_archive("Document", spreadsheet.document());
+        inspect_archive("DocumentMetadata", spreadsheet.document_metadata());
+        inspect_archive("Metadata", spreadsheet.metadata());
         inspect_entry(package, "Index/ObjectContainer.iwa")?;
         inspect_entry(package, "Index/CalculationEngine.iwa")?;
         inspect_entry(package, "Index/ViewState.iwa")?;
-        inspect_archive("Stylesheet", spreadsheet.stylesheet())?;
+        inspect_archive("Stylesheet", spreadsheet.stylesheet());
     }
 
     for archive in spreadsheet.table_archives() {
@@ -28,8 +35,7 @@ fn main() -> Result<(), iwork::Error> {
         {
             continue;
         }
-        println!("== {} ==", archive.path());
-        inspect_archive(archive.path(), archive.archive())?;
+        inspect_archive(archive.path(), archive.archive());
     }
 
     Ok(())
@@ -37,10 +43,13 @@ fn main() -> Result<(), iwork::Error> {
 
 fn inspect_entry(package: &iwork::Package, path: &str) -> Result<(), iwork::Error> {
     let archive = iwork::IwaArchive::decode(package.entry_bytes(path)?)?;
-    inspect_archive(path, &archive)
+    inspect_archive(path, &archive);
+    Ok(())
 }
 
-fn inspect_archive(label: &str, archive: &iwork::IwaArchive) -> Result<(), iwork::Error> {
+/// Summarizes the IWA framing, then hands each object's protobuf payload to
+/// `protorev` for the field-level dump.
+fn inspect_archive(label: &str, archive: &iwork::IwaArchive) {
     println!("== {label} ==");
     println!(
         "descriptor: root={:?} kind={:?} body_hint={:?} refs={}",
@@ -49,107 +58,42 @@ fn inspect_archive(label: &str, archive: &iwork::IwaArchive) -> Result<(), iwork
         archive.descriptor().body_hint,
         archive.descriptor().object_references.len()
     );
-
-    let header = archive.header().decode_message()?;
-    println!("header:");
-    print_message(&header, 1);
-
     println!(
         "leading object refs: {:?}",
         archive.leading_object_references()
     );
-    println!("body preview:");
 
-    if let Ok(message) = iwork::ProtoMessage::decode(archive.body()) {
-        println!("  body-as-message:");
-        print_message(&message, 2);
-    }
-
-    let body = archive.body();
-    let mut cursor = archive.leading_object_references_len();
-    let mut shown = 0usize;
-    while cursor < body.len() && shown < 4 {
-        let start = cursor;
-        let Ok(tag) = read_varint(body, &mut cursor) else {
-            break;
-        };
-        if (tag & 0x07) != 2 {
-            break;
+    let objects = archive.objects();
+    println!("objects: {}", objects.len());
+    for (index, object) in objects.iter().enumerate() {
+        let type_name = object
+            .message_type
+            .and_then(message_type_name)
+            .unwrap_or("?");
+        println!(
+            "  object {index}: id={:?} type={:?} ({type_name}) payload_len={}",
+            object.identifier,
+            object.message_type,
+            object.payload.len()
+        );
+        if index >= MAX_OBJECT_DUMPS {
+            continue;
         }
-        let Ok(len) = read_varint(body, &mut cursor) else {
-            break;
-        };
-        let Ok(len) = usize::try_from(len) else {
-            break;
-        };
-        let Some(chunk) = body.get(cursor..cursor + len) else {
-            break;
-        };
-        cursor += len;
-
-        println!("  message {} at body offset {}", shown + 1, start);
-        match iwork::ProtoMessage::decode(chunk) {
-            Ok(message) => print_message(&message, 2),
+        match Message::decode(&object.payload) {
+            Ok(message) => print!("{}", indent(&dump_message(&message, DUMP_DEPTH))),
             Err(error) => println!("    <decode error: {error}>"),
         }
-        shown += 1;
+    }
+    if objects.len() > MAX_OBJECT_DUMPS {
+        println!("  ... {} more object payloads not dumped", objects.len() - MAX_OBJECT_DUMPS);
     }
     println!();
-    Ok(())
 }
 
-fn read_varint(bytes: &[u8], cursor: &mut usize) -> Result<u64, ()> {
-    let mut shift = 0u32;
-    let mut value = 0u64;
-
-    loop {
-        if shift >= 64 {
-            return Err(());
-        }
-        let Some(byte) = bytes.get(*cursor).copied() else {
-            return Err(());
-        };
-        *cursor += 1;
-        value |= u64::from(byte & 0x7f) << shift;
-        if byte & 0x80 == 0 {
-            return Ok(value);
-        }
-        shift += 7;
-    }
-}
-
-fn print_message(message: &iwork::ProtoMessage, indent: usize) {
-    let prefix = " ".repeat(indent * 2);
-    for field in message.fields() {
-        match &field.value {
-            ProtoValue::Varint(value) => {
-                println!("{prefix}field {}: varint {value}", field.number);
-            }
-            ProtoValue::Fixed32(value) => {
-                println!("{prefix}field {}: fixed32 {value}", field.number);
-            }
-            ProtoValue::Fixed64(value) => {
-                println!("{prefix}field {}: fixed64 {value}", field.number);
-            }
-            ProtoValue::LengthDelimited(bytes) => {
-                let ascii = if bytes
-                    .iter()
-                    .all(|byte| byte.is_ascii_graphic() || *byte == b' ')
-                {
-                    std::str::from_utf8(bytes).ok()
-                } else {
-                    None
-                };
-                println!(
-                    "{prefix}field {}: bytes len={}{}",
-                    field.number,
-                    bytes.len(),
-                    ascii.map_or(String::new(), |text| format!(" ascii={text:?}"))
-                );
-                if let Ok(nested) = iwork::ProtoMessage::decode(bytes) {
-                    print_message(&nested, indent + 1);
-                }
-            }
-        }
-    }
+/// Indents a multi-line dump so it nests under its object header.
+fn indent(text: &str) -> String {
+    text.lines().fold(String::new(), |mut acc, line| {
+        let _ = writeln!(acc, "    {line}");
+        acc
+    })
 }
