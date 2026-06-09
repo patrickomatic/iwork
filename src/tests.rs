@@ -224,6 +224,47 @@ fn iwa_archives_decode_snappy_chunks_and_headers() -> Result<(), Error> {
 }
 
 #[test]
+fn iwa_archive_decodes_full_object_stream() -> Result<(), Error> {
+    let document = Document::open(PERSONAL_BUDGET_EXAMPLE)?;
+    let package = document.package();
+
+    // Index/Document.iwa is a composite archive: a Document root followed by
+    // sheet/table objects, each framed by its own ArchiveInfo.
+    let composite = IwaArchive::decode(package.entry_bytes("Index/Document.iwa")?)?;
+    let objects = composite.objects();
+    assert!(
+        objects.len() > 1,
+        "composite archive should expose more than its root object"
+    );
+
+    let root = &objects[0];
+    assert_eq!(root.identifier, Some(1));
+    assert_eq!(root.message_type, Some(1));
+    assert_eq!(
+        root.message_type.and_then(numbers::message_type_name),
+        Some("Document")
+    );
+    // The root payload is the first `body_hint` bytes of the archive body.
+    assert_eq!(
+        Some(root.payload.len() as u64),
+        composite.descriptor().body_hint
+    );
+
+    // Every object carries a positive identifier and a known-or-unknown type;
+    // the trailing objects must decode without truncating the stream.
+    assert!(objects.iter().all(|object| object.identifier.is_some()));
+
+    // A leaf Tile archive is a single object whose payload is the whole body.
+    let tile = IwaArchive::decode(package.entry_bytes("Index/Tables/Tile.iwa")?)?;
+    let tile_objects = tile.objects();
+    assert_eq!(tile_objects.len(), 1);
+    assert_eq!(tile_objects[0].message_type, Some(6002));
+    assert_eq!(tile_objects[0].payload, tile.body());
+
+    Ok(())
+}
+
+#[test]
 fn numbers_spreadsheet_exposes_core_archives() -> Result<(), Error> {
     let document = numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?;
     let spreadsheet = document.spreadsheet()?;

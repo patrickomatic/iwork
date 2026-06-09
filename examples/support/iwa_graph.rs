@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
+use iwork::numbers::message_type_name;
 use iwork::{Error, IwaArchive, Package, ProtoMessage, ProtoValue};
 
 const MAX_PROTO_DEPTH: usize = 12;
@@ -30,6 +31,7 @@ struct ArchiveSummary {
     body_hint: Option<u64>,
     object_references: Vec<ObjectReferenceSummary>,
     leading_object_references: Vec<u64>,
+    objects: Vec<ObjectSummary>,
     chunks: Vec<ChunkSummary>,
     body_len: usize,
     top_level_fields: BTreeMap<u32, usize>,
@@ -43,6 +45,14 @@ struct ObjectReferenceSummary {
     object_id: Option<u64>,
     kind_hint: Option<u64>,
     state_hint: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ObjectSummary {
+    identifier: Option<u64>,
+    message_type: Option<u64>,
+    type_name: Option<&'static str>,
+    payload_len: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +150,16 @@ impl ArchiveSummary {
                         })
                         .collect(),
                     leading_object_references: archive.leading_object_references(),
+                    objects: archive
+                        .objects()
+                        .iter()
+                        .map(|object| ObjectSummary {
+                            identifier: object.identifier,
+                            message_type: object.message_type,
+                            type_name: object.message_type.and_then(message_type_name),
+                            payload_len: object.payload.len(),
+                        })
+                        .collect(),
                     chunks: archive
                         .chunks()
                         .iter()
@@ -195,6 +215,7 @@ impl ArchiveSummary {
                 body_hint: None,
                 object_references: Vec::new(),
                 leading_object_references: Vec::new(),
+                objects: Vec::new(),
                 chunks: Vec::new(),
                 body_len: 0,
                 top_level_fields: BTreeMap::new(),
@@ -212,12 +233,6 @@ impl ArchiveSummary {
             "descriptor root={:?} kind={:?} body_hint={:?} body_len={}",
             self.root_object_id, self.kind_hint, self.body_hint, self.body_len
         );
-
-        if let Some(error) = &self.decode_error {
-            let _ = writeln!(out, "decode_error={error}");
-            let _ = writeln!(out);
-            return;
-        }
 
         let _ = writeln!(out, "chunks:");
         for chunk in &self.chunks {
@@ -237,6 +252,26 @@ impl ArchiveSummary {
             );
         }
         let _ = writeln!(out, "leading_refs: {:?}", self.leading_object_references);
+
+        let _ = writeln!(out, "objects:");
+        for object in &self.objects {
+            let _ = writeln!(
+                out,
+                "  id={:?} type={:?} ({}) payload_len={}",
+                object.identifier,
+                object.message_type,
+                object.type_name.unwrap_or("?"),
+                object.payload_len
+            );
+        }
+
+        // The whole-body shape decode only succeeds for single-object archives;
+        // composite archives are now described by `objects` above instead.
+        if let Some(error) = &self.decode_error {
+            let _ = writeln!(out, "body_shape_decode_error={error}");
+            let _ = writeln!(out);
+            return;
+        }
 
         let _ = writeln!(out, "top_level_fields:");
         for (field, count) in &self.top_level_fields {
@@ -463,6 +498,12 @@ fn diff_archive(path: &str, left: &ArchiveSummary, right: &ArchiveSummary, out: 
         );
     }
     diff_map(
+        "object_type_counts",
+        &object_type_counts(&left.objects),
+        &object_type_counts(&right.objects),
+        &mut section,
+    );
+    diff_map(
         "top_level_fields",
         &left.top_level_fields,
         &right.top_level_fields,
@@ -476,6 +517,20 @@ fn diff_archive(path: &str, left: &ArchiveSummary, right: &ArchiveSummary, out: 
         out.push_str(&section);
         let _ = writeln!(out);
     }
+}
+
+/// Counts objects by their message type, labeling known types for readability.
+fn object_type_counts(objects: &[ObjectSummary]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for object in objects {
+        let label = match (object.message_type, object.type_name) {
+            (Some(message_type), Some(name)) => format!("{message_type} ({name})"),
+            (Some(message_type), None) => message_type.to_string(),
+            (None, _) => "none".to_owned(),
+        };
+        *counts.entry(label).or_insert(0) += 1;
+    }
+    counts
 }
 
 fn diff_map<K: Ord + std::fmt::Debug, V: Eq + std::fmt::Debug>(

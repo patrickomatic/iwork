@@ -105,7 +105,61 @@ After decompression, the archive byte stream begins with a length-prefixed heade
 - Field 2 → Field 3: body hint (body byte count)
 - Field 2 → Field 4 (repeated): object references (id, kind_hint, state_hint)
 
-The body is a stream of length-delimited protobuf messages. The body often starts with a run of "leading object reference" messages (field 1, wire type 2, containing inner field 1 = varint object ID). These are read by `IwaArchive::leading_object_references()`.
+### Object stream
+
+A single `.iwa` archive can hold **many** objects, not just one. The header
+packet described above is the `ArchiveInfo` of the *first* object; its payload is
+the first `body_hint` bytes of the body. Any remaining objects follow as a
+stream of records:
+
+```
+[varint info_len] [ArchiveInfo: info_len bytes] [payload: MessageInfo.length bytes]
+```
+
+Every `ArchiveInfo` shares the descriptor shape above, so each record yields the
+object's identifier (field 1), its message type (`MessageInfo.field 1`), its
+version bytes (`MessageInfo.field 2`), its payload length (`MessageInfo.field
+3`), and its outgoing object references (`MessageInfo.field 4`).
+`IwaArchive::objects()` walks this full stream and returns one `IwaObject` per
+record. Leaf archives (`Tile`, `DataList`, `HeaderStorageBucket`) contain a
+single object whose payload is the whole body; composite archives
+(`Document`, `Metadata`, `CalculationEngine`, `DocumentStylesheet`) pack dozens.
+
+The walk is self-checking: because each record's length determines where the
+next `ArchiveInfo` begins, a wrong payload length would desynchronize and corrupt
+every later record. A stream that decodes cleanly to the final byte is therefore
+strong evidence the framing is understood correctly.
+
+Many payloads begin with a run of "leading object reference" messages (field 1,
+wire type 2, inner field 1 = varint object ID), read by
+`IwaArchive::leading_object_references()`.
+
+### Message type identifiers
+
+Each object declares a numeric message type. The top-level archive types are
+grounded in structural evidence: the ZIP entry name identifies an archive's role
+and its root object reports the matching type identifier, a correspondence that
+holds across every fixture regardless of document content.
+
+| Type | Archive role                | ZIP entry evidence                  |
+|------|-----------------------------|-------------------------------------|
+| 1    | Document                    | `Index/Document.iwa`                |
+| 210  | ViewState                   | `Index/ViewState.iwa`               |
+| 213  | AnnotationAuthorStorage     | `Index/AnnotationAuthorStorage.iwa` |
+| 401  | DocumentStylesheet          | `Index/DocumentStylesheet.iwa`      |
+| 4000 | CalculationEngine           | `Index/CalculationEngine.iwa`       |
+| 6002 | Tile                        | `Index/Tables/Tile*.iwa`            |
+| 6005 | DataList                    | `Index/Tables/DataList*.iwa`        |
+| 6006 | HeaderStorageBucket         | `Index/Tables/HeaderStorageBucket*.iwa` |
+| 11006 | Metadata                   | `Index/Metadata.iwa`                |
+| 11008 | ObjectContainer            | `Index/ObjectContainer.iwa`         |
+| 11011 | DocumentMetadata           | `Index/DocumentMetadata.iwa`        |
+
+`numbers::message_type_name()` exposes this mapping. Child object types that only
+appear *inside* a composite archive (for example the type `2` sheet and type
+`2001`/`2011` table objects packed into `Index/Document.iwa`) are deliberately
+left unnamed until their identity is confirmed structurally rather than guessed
+from a single document.
 
 ### Writing IWA archives
 
