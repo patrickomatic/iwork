@@ -7,8 +7,14 @@ fn main() -> Result<(), iwork::Error> {
     let document = numbers::Document::open(&path)?;
     let spreadsheet = document.spreadsheet()?;
 
-    for (index, table) in spreadsheet.tables().iter().enumerate() {
-        println!("table {index}: rows={}", table.rows().len());
+    for (model, table) in spreadsheet.decoded_tables() {
+        println!(
+            "{} — {}x{} ({} rows decoded)",
+            model.name().unwrap_or("(unnamed)"),
+            model.row_count(),
+            model.column_count(),
+            table.rows().len(),
+        );
         for row in table.rows().iter().take(3) {
             let cells = row
                 .cells
