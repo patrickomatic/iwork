@@ -16,8 +16,18 @@ impl Table {
         Self { rows }
     }
 
+    /// Builds a table from already-decoded rows (e.g. merged across tiles).
+    pub(crate) fn from_rows(rows: Vec<TableRow>) -> Self {
+        Self { rows }
+    }
+
     pub fn rows(&self) -> &[TableRow] {
         &self.rows
+    }
+
+    /// Consumes the table, returning its rows.
+    pub(crate) fn into_rows(self) -> Vec<TableRow> {
+        self.rows
     }
 }
 

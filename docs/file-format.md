@@ -262,10 +262,26 @@ independently, and field 8 holds the name Numbers displays.
   yet cross-validated against the header storage buckets
 - Field 10: header column count (varint) — same confidence caveat
 
-`numbers::Spreadsheet::table_models()` decodes these into `TableModel` values.
-This is the authoritative table list; `Spreadsheet::tables()` is a lower-level
-view that decodes each `Tile` archive independently and can surface tiles that
-are not bound to any model.
+### DataStore (TableModel field 4)
+
+Field 4 of the `TableModel` is the `DataStore`, which references the table's
+storage objects:
+
+- Field 3: `TileStorage` — field 1 is the repeated tile list; each entry is
+  `{ field 1: tile index, field 2: { field 1: Tile object id } }`, and field 2
+  is the tile size (rows per tile, 256). Tiles are ordered by index.
+- Field 4: reference (`{ field 1: DataList object id }`) to the table's
+  cell-string `DataList`. Validated across every fixture: this list's entries
+  are the table's text cells (e.g. "Date", "Groceries"), distinct from the
+  number-format store. Scoping string lookups to this per-table list keeps cell
+  string keys from colliding across tables.
+
+`numbers::Spreadsheet::table_models()` decodes the geometry; `Spreadsheet::table()`
+and `Spreadsheet::decoded_tables()` follow the DataStore to merge the model's
+tiles (in tile order) and resolve its strings, producing one decoded grid per
+real table. This is the authoritative table view; `Spreadsheet::tables()` is a
+lower-level path that decodes each `Tile` archive independently and can surface
+tiles not bound to any model.
 
 ## DataList IWA Format (Index/Tables/DataList*.iwa)
 

@@ -18,6 +18,21 @@ const FIELD_NAME: u32 = 8;
 const FIELD_HEADER_ROWS: u32 = 9;
 const FIELD_HEADER_COLUMNS: u32 = 10;
 
+/// `TableModel.field 4` holds the `DataStore` (the table's storage references).
+const FIELD_DATA_STORE: u32 = 4;
+/// `DataStore.field 3` holds the `TileStorage` (the table's data tiles).
+const STORE_FIELD_TILES: u32 = 3;
+/// `DataStore.field 4` references the `DataList` of cell strings (validated:
+/// across every fixture its entries are the table's text cells, distinct from
+/// the format store).
+const STORE_FIELD_STRINGS: u32 = 4;
+/// `TileStorage.field 1` is the repeated list of `(tile index, tile reference)`.
+const TILES_FIELD_ENTRIES: u32 = 1;
+const TILE_ENTRY_INDEX: u32 = 1;
+const TILE_ENTRY_REFERENCE: u32 = 2;
+/// An object reference message stores the referenced identifier in field 1.
+const REFERENCE_FIELD_ID: u32 = 1;
+
 /// A decoded Numbers table model: its name and grid geometry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableModel {
@@ -28,6 +43,8 @@ pub struct TableModel {
     column_count: u32,
     header_row_count: u32,
     header_column_count: u32,
+    tile_ids: Vec<u64>,
+    string_data_list_id: Option<u64>,
 }
 
 impl TableModel {
@@ -63,6 +80,11 @@ impl TableModel {
                 .unwrap_or(0)
         };
 
+        let data_store = message
+            .field(FIELD_DATA_STORE)
+            .and_then(|field| field.value.as_bytes())
+            .and_then(|bytes| ProtoMessage::decode(bytes).ok());
+
         Some(Self {
             id,
             uuid: string_field(FIELD_UUID),
@@ -71,6 +93,8 @@ impl TableModel {
             column_count: count_field(FIELD_COLUMN_COUNT),
             header_row_count: count_field(FIELD_HEADER_ROWS),
             header_column_count: count_field(FIELD_HEADER_COLUMNS),
+            tile_ids: data_store.as_ref().map(decode_tile_ids).unwrap_or_default(),
+            string_data_list_id: data_store.as_ref().and_then(decode_string_data_list_id),
         })
     }
 
@@ -113,4 +137,69 @@ impl TableModel {
     pub fn header_column_count(&self) -> u32 {
         self.header_column_count
     }
+
+    /// Identifiers of the `Tile` objects holding this table's cell data, in
+    /// tile-index order. Each identifier matches a `Index/Tables/Tile*.iwa`
+    /// archive's root object.
+    pub fn tile_ids(&self) -> &[u64] {
+        &self.tile_ids
+    }
+
+    /// Identifier of the `DataList` object that resolves this table's string
+    /// cells. Scoping string lookups to this list keeps per-table string keys
+    /// from colliding across tables.
+    pub(crate) fn string_data_list_id(&self) -> Option<u64> {
+        self.string_data_list_id
+    }
+}
+
+/// Extracts the table's tile identifiers from a `DataStore`, in tile-index order.
+fn decode_tile_ids(data_store: &ProtoMessage) -> Vec<u64> {
+    let Some(tile_storage) = data_store
+        .field(STORE_FIELD_TILES)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(|bytes| ProtoMessage::decode(bytes).ok())
+    else {
+        return Vec::new();
+    };
+
+    let mut tiles: Vec<(u64, u64)> = tile_storage
+        .fields_by_number(TILES_FIELD_ENTRIES)
+        .filter_map(|entry| {
+            let entry = entry
+                .value
+                .as_bytes()
+                .and_then(|bytes| ProtoMessage::decode(bytes).ok())?;
+            let index = entry
+                .field(TILE_ENTRY_INDEX)
+                .and_then(|field| field.value.as_varint())
+                .unwrap_or(0);
+            let tile_id = entry
+                .field(TILE_ENTRY_REFERENCE)
+                .and_then(|field| field.value.as_bytes())
+                .and_then(|bytes| ProtoMessage::decode(bytes).ok())
+                .and_then(|reference| {
+                    reference
+                        .field(REFERENCE_FIELD_ID)
+                        .and_then(|field| field.value.as_varint())
+                })?;
+            Some((index, tile_id))
+        })
+        .collect();
+
+    tiles.sort_by_key(|(index, _)| *index);
+    tiles.into_iter().map(|(_, tile_id)| tile_id).collect()
+}
+
+/// Extracts the cell-string `DataList` identifier from a `DataStore`.
+fn decode_string_data_list_id(data_store: &ProtoMessage) -> Option<u64> {
+    data_store
+        .field(STORE_FIELD_STRINGS)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(|bytes| ProtoMessage::decode(bytes).ok())
+        .and_then(|reference| {
+            reference
+                .field(REFERENCE_FIELD_ID)
+                .and_then(|field| field.value.as_varint())
+        })
 }
