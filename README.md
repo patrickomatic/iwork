@@ -135,6 +135,20 @@ crate. Full Apple Numbers compatibility still requires decoding and generating
 the real document/table object graph and its stylesheet, view-state, and
 calculation-engine references.
 
+Two example tools help map those missing structures without turning fixture
+content into parser heuristics:
+
+```bash
+cargo run --example dump_iwa_graph -- path/to/document.numbers
+cargo run --example diff_iwa_graph -- left.numbers right.numbers
+```
+
+`dump_iwa_graph` prints package entries, IWA descriptor refs, leading refs,
+chunk sizes, field-shape summaries, and printable strings for navigation.
+`diff_iwa_graph` compares two packages at that structural level so reverse
+engineering can focus on controlled one-edit deltas, such as adding one table,
+renaming one sheet, or changing one cell style.
+
 The current parser relies on these reverse-engineered format details:
 
 - string values are looked up through `DataList*.iwa` archives
