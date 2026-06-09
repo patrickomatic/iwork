@@ -180,15 +180,19 @@ cargo run --example inspect_numbers -- path/to/document.numbers
 # Schema-infer one object type across packages (protorev schema/explain/values/diff)
 cargo run --example iwa_corpus -- schema 6001 examples/numbers/*.numbers
 cargo run --example iwa_corpus -- diff   6001 before.numbers after.numbers
+
+# Explore the cross-object reference graph
+cargo run --example iwa_refs -- edges 6001 examples/numbers/personal_budget.numbers
 ```
 
 `dump_iwa_graph`/`diff_iwa_graph` work at the IWA framing and object-graph
 level (entries, descriptor refs, object-type counts) with a `protorev` corpus
 shape per archive. `iwa_corpus` gathers every object of one message type and
 runs `protorev`'s confidence-gated schema inference, per-field explanations,
-value sampling, and corpus diffing on it — so reverse engineering can focus on
-controlled one-edit deltas, such as adding one table, renaming one sheet, or
-changing one cell style.
+value sampling, and corpus diffing on it. `iwa_refs` recovers the cross-object
+reference graph structurally (which object types reference which). Together they
+let reverse engineering focus on controlled one-edit deltas, such as adding one
+table, renaming one sheet, or changing one cell style.
 
 The current parser relies on these reverse-engineered format details:
 

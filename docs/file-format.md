@@ -248,6 +248,18 @@ high|medium|low`); `explain` reports one field's presence and confidence;
 type between two packages. The field path is a `protorev` dotted path
 (`4.3` = `TableModel` → `DataStore` → `TileStorage`).
 
+**Object reference graph.** `iwa_refs` is the object-graph complement to
+`iwa_corpus`: it recovers cross-object references structurally (an object
+identifier is a large unique integer, so a payload varint equal to another
+object's id is a reliable edge) — the technique that named the
+`Sheet → TableInfo → TableModel` chain.
+
+```bash
+cargo run --example iwa_refs -- types <file.numbers>...        # object-type histogram
+cargo run --example iwa_refs -- edges 6001 <file.numbers>...   # types referenced by each TableModel
+cargo run --example iwa_refs -- refs  904486 <file.numbers>    # which objects reference an id
+```
+
 The intended discipline is to create controlled Apple Numbers fixtures that
 differ by one operation, then `diff` them. Stable structural deltas can be
 promoted into parser or writer behavior; deltas that merely track authored
