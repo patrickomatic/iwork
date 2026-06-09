@@ -1,5 +1,5 @@
-use iwork::numbers;
 use iwork::ProtoValue;
+use iwork::numbers;
 
 fn main() -> Result<(), iwork::Error> {
     let mut args = std::env::args().skip(1);
@@ -54,7 +54,10 @@ fn inspect_archive(label: &str, archive: &iwork::IwaArchive) -> Result<(), iwork
     println!("header:");
     print_message(&header, 1);
 
-    println!("leading object refs: {:?}", archive.leading_object_references());
+    println!(
+        "leading object refs: {:?}",
+        archive.leading_object_references()
+    );
     println!("body preview:");
 
     if let Ok(message) = iwork::ProtoMessage::decode(archive.body()) {
