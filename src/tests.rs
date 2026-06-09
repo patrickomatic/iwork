@@ -526,3 +526,69 @@ fn pivot_table_preserves_grouped_text_rows() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[test]
+fn numbers_table_models_expose_names_and_geometry() -> Result<(), Error> {
+    let models = numbers::Document::open("examples/numbers/my_stocks.numbers")?
+        .spreadsheet()?
+        .table_models();
+
+    // my_stocks has three named tables with distinct geometry.
+    let mut named: Vec<(String, u32, u32)> = models
+        .iter()
+        .filter_map(|model| {
+            model
+                .name()
+                .map(|name| (name.to_owned(), model.row_count(), model.column_count()))
+        })
+        .collect();
+    named.sort();
+
+    assert_eq!(
+        named,
+        vec![
+            ("30-Day History Table".to_owned(), 32, 3),
+            ("My Portfolio".to_owned(), 5, 13),
+            ("Overview".to_owned(), 3, 3),
+        ]
+    );
+
+    Ok(())
+}
+
+#[test]
+fn table_model_geometry_matches_decoded_tile_dimensions() -> Result<(), Error> {
+    // The "Summary by Category" table is the only model in personal_budget; its
+    // declared geometry must match the dimensions the tile decoder recovers.
+    let spreadsheet = numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?.spreadsheet()?;
+    let models = spreadsheet.table_models();
+
+    let summary = models
+        .iter()
+        .find(|model| model.name() == Some("Summary by Category"))
+        .ok_or(Error::InvalidIwa("missing Summary by Category table model"))?;
+    assert_eq!(summary.row_count(), 11);
+    assert_eq!(summary.column_count(), 4);
+    assert!(summary.header_row_count() <= summary.row_count());
+    assert!(summary.uuid().is_some());
+
+    let matches_a_tile = spreadsheet.tables().iter().any(|table| {
+        let rows = u32::try_from(table.rows().len()).unwrap_or(0);
+        let cols = u32::try_from(
+            table
+                .rows()
+                .iter()
+                .map(|row| row.cells.len())
+                .max()
+                .unwrap_or(0),
+        )
+        .unwrap_or(0);
+        rows == summary.row_count() && cols == summary.column_count()
+    });
+    assert!(
+        matches_a_tile,
+        "a decoded tile should match the model's row/column counts"
+    );
+
+    Ok(())
+}

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::table::{Table, decode_string_datalist};
+use super::table_model::TableModel;
 use crate::iwa::IwaArchive;
 use crate::{Error, Package, StylesheetCatalog};
 
@@ -8,6 +9,7 @@ const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 const DOCUMENT_METADATA_ENTRY: &str = "Index/DocumentMetadata.iwa";
 const METADATA_ENTRY: &str = "Index/Metadata.iwa";
 const STYLESHEET_ENTRY: &str = "Index/DocumentStylesheet.iwa";
+const CALCULATION_ENGINE_ENTRY: &str = "Index/CalculationEngine.iwa";
 const TABLE_PREFIX: &str = "Index/Tables/";
 
 #[derive(Debug, Clone)]
@@ -16,6 +18,7 @@ pub struct Spreadsheet {
     document_metadata: IwaArchive,
     metadata: IwaArchive,
     stylesheet: IwaArchive,
+    calculation_engine: IwaArchive,
     table_archives: Vec<TableArchive>,
 }
 
@@ -25,6 +28,8 @@ impl Spreadsheet {
         let document_metadata = IwaArchive::decode(package.entry_bytes(DOCUMENT_METADATA_ENTRY)?)?;
         let metadata = IwaArchive::decode(package.entry_bytes(METADATA_ENTRY)?)?;
         let stylesheet = IwaArchive::decode(package.entry_bytes(STYLESHEET_ENTRY)?)?;
+        let calculation_engine =
+            IwaArchive::decode(package.entry_bytes(CALCULATION_ENGINE_ENTRY)?)?;
 
         let mut table_archives = package
             .entries()
@@ -44,6 +49,7 @@ impl Spreadsheet {
             document_metadata,
             metadata,
             stylesheet,
+            calculation_engine,
             table_archives,
         })
     }
@@ -62,6 +68,25 @@ impl Spreadsheet {
 
     pub fn stylesheet(&self) -> &IwaArchive {
         &self.stylesheet
+    }
+
+    pub fn calculation_engine(&self) -> &IwaArchive {
+        &self.calculation_engine
+    }
+
+    /// Decodes the document's tables from their `TableModel` objects.
+    ///
+    /// Each [`TableModel`] carries the table's name and geometry (row/column
+    /// counts). This is the authoritative table list; unlike [`Spreadsheet::tables`],
+    /// which decodes every `Tile` archive independently, it reflects the document's
+    /// real tables. `TableModel` objects are stored in `Index/CalculationEngine.iwa`
+    /// (with `Index/Document.iwa` scanned as a fallback for layouts that inline them).
+    pub fn table_models(&self) -> Vec<TableModel> {
+        let mut models = TableModel::collect(&self.calculation_engine);
+        models.extend(TableModel::collect(&self.document));
+        models.sort_by_key(TableModel::id);
+        models.dedup_by_key(|model| model.id());
+        models
     }
 
     pub fn stylesheet_catalog(&self) -> StylesheetCatalog {

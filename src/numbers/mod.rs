@@ -19,11 +19,13 @@ use crate::{DocumentKind, Error, InspectionReport, Package};
 
 mod spreadsheet;
 mod table;
+mod table_model;
 mod types;
 mod write;
 
 pub use spreadsheet::{Spreadsheet, TableArchive};
 pub use table::{CellValue, Table, TableRow};
+pub use table_model::TableModel;
 pub use types::message_type_name;
 pub use write::{EncodedTableArchive, Workbook, WritableTable};
 

@@ -237,6 +237,27 @@ Style attribute payload fields:
 
 Records without field 11 may have attributes in nearby `0x5a` payload messages (field 11 of the outer stream). Enrichment searches the body for the sequence `0x08 <varint_object_id>` within 1000 bytes of a `0x5a` payload.
 
+## TableModel (message type 6001)
+
+`TableModel` objects live inside `Index/CalculationEngine.iwa` (one per table)
+and carry the table's name and grid geometry. The payload field layout was
+recovered structurally and cross-validated: for every table across all fixtures,
+fields 6 and 7 equal the row and column counts the tile decoder recovers
+independently, and field 8 holds the name Numbers displays.
+
+- Field 1: table UUID (string)
+- Field 6: row count (varint) — total rows, header rows included
+- Field 7: column count (varint) — total columns, header columns included
+- Field 8: table name (string)
+- Field 9: header row count (varint) — believed; always `<= row count`, but not
+  yet cross-validated against the header storage buckets
+- Field 10: header column count (varint) — same confidence caveat
+
+`numbers::Spreadsheet::table_models()` decodes these into `TableModel` values.
+This is the authoritative table list; `Spreadsheet::tables()` is a lower-level
+view that decodes each `Tile` archive independently and can surface tiles that
+are not bound to any model.
+
 ## DataList IWA Format (Index/Tables/DataList*.iwa)
 
 DataList archives store typed lists of cell values. The archive body contains a single metadata message:
