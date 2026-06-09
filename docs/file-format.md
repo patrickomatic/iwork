@@ -129,6 +129,28 @@ reader. Opening them in Apple Numbers will require a fuller document object
 graph with table references, stylesheet links, view state, and calculation
 metadata.
 
+### Reverse-engineering workflow
+
+Use the graph tools when investigating the remaining object graph:
+
+```bash
+cargo run --example dump_iwa_graph -- path/to/document.numbers
+cargo run --example diff_iwa_graph -- before.numbers after.numbers
+```
+
+`dump_iwa_graph` summarizes every `.iwa` archive in a package: descriptor
+fields, object references, leading object references, chunk sizes, body length,
+top-level body fields, recursive protobuf field shapes, and printable strings.
+The strings are included only as landmarks for humans reading a dump; they are
+not format evidence.
+
+`diff_iwa_graph` compares two packages by entry set and by per-archive shape.
+The intended workflow is to create controlled Apple Numbers fixtures that differ
+by one operation, then diff them against each other and against this crate's
+generated package. Stable structural deltas can be promoted into parser or
+writer behavior; deltas that merely track authored content must stay out of the
+format model.
+
 ## Stylesheet IWA Format (DocumentStylesheet.iwa)
 
 After the leading object references, each message in the body is a style record with:
