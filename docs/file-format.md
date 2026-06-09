@@ -136,30 +136,46 @@ wire type 2, inner field 1 = varint object ID), read by
 
 ### Message type identifiers
 
-Each object declares a numeric message type. The top-level archive types are
-grounded in structural evidence: the ZIP entry name identifies an archive's role
-and its root object reports the matching type identifier, a correspondence that
-holds across every fixture regardless of document content.
+Each object declares a numeric message type. The known types are grounded in
+structural evidence by one of two methods:
 
-| Type | Archive role                | ZIP entry evidence                  |
-|------|-----------------------------|-------------------------------------|
-| 1    | Document                    | `Index/Document.iwa`                |
-| 210  | ViewState                   | `Index/ViewState.iwa`               |
-| 213  | AnnotationAuthorStorage     | `Index/AnnotationAuthorStorage.iwa` |
-| 401  | DocumentStylesheet          | `Index/DocumentStylesheet.iwa`      |
-| 4000 | CalculationEngine           | `Index/CalculationEngine.iwa`       |
-| 6002 | Tile                        | `Index/Tables/Tile*.iwa`            |
-| 6005 | DataList                    | `Index/Tables/DataList*.iwa`        |
-| 6006 | HeaderStorageBucket         | `Index/Tables/HeaderStorageBucket*.iwa` |
-| 11006 | Metadata                   | `Index/Metadata.iwa`                |
-| 11008 | ObjectContainer            | `Index/ObjectContainer.iwa`         |
-| 11011 | DocumentMetadata           | `Index/DocumentMetadata.iwa`        |
+- **Filename evidence** (top-level archives): the ZIP entry name identifies an
+  archive's role and its root object reports the matching type identifier.
+- **Reference-graph evidence** (in-stream objects): an object's identity is
+  fixed by its position in the cross-object reference graph plus a count that
+  tracks document structure rather than content (see below).
 
-`numbers::message_type_name()` exposes this mapping. Child object types that only
-appear *inside* a composite archive (for example the type `2` sheet and type
-`2001`/`2011` table objects packed into `Index/Document.iwa`) are deliberately
-left unnamed until their identity is confirmed structurally rather than guessed
-from a single document.
+| Type | Role                    | Evidence                                       |
+|------|-------------------------|------------------------------------------------|
+| 1    | Document                | `Index/Document.iwa`                            |
+| 2    | Sheet                   | referenced by Document; count = sheet count     |
+| 210  | ViewState               | `Index/ViewState.iwa`                           |
+| 213  | AnnotationAuthorStorage | `Index/AnnotationAuthorStorage.iwa`             |
+| 401  | DocumentStylesheet      | `Index/DocumentStylesheet.iwa`                  |
+| 4000 | CalculationEngine       | `Index/CalculationEngine.iwa`                   |
+| 6000 | TableInfo               | wraps one TableModel; count = table count       |
+| 6001 | TableModel              | references Tile/DataList/HeaderStorageBucket; holds table name |
+| 6002 | Tile                    | `Index/Tables/Tile*.iwa`                        |
+| 6005 | DataList                | `Index/Tables/DataList*.iwa`                    |
+| 6006 | HeaderStorageBucket     | `Index/Tables/HeaderStorageBucket*.iwa`         |
+| 11006 | Metadata               | `Index/Metadata.iwa`                            |
+| 11008 | ObjectContainer        | `Index/ObjectContainer.iwa`                     |
+| 11011 | DocumentMetadata       | `Index/DocumentMetadata.iwa`                    |
+
+`numbers::message_type_name()` exposes this mapping.
+
+The table chain `Sheet → TableInfo → TableModel → Tile + DataList +
+HeaderStorageBucket` was recovered structurally: object identifiers are large
+unique integers, so a payload varint equal to another object's identifier is a
+reliable reference edge. The `TableModel` (6001) references its storage objects
+and carries the table name; one `TableInfo` (6000) wraps each `TableModel`; and
+`Sheet` (2) objects are referenced directly by the `Document` root with a count
+equal to the document's sheet count. The `6000`/`6001` objects live inside
+`Index/CalculationEngine.iwa`, not `Index/Document.iwa`.
+
+Other in-stream types (text storages, drawables, styles, and number formats)
+remain unnamed until confirmed the same way rather than guessed from a single
+document.
 
 ### Writing IWA archives
 
