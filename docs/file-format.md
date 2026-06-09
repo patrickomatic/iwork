@@ -39,6 +39,9 @@ The package layout we currently rely on is small:
 - `Index/Document.iwa`
 - `Index/DocumentMetadata.iwa`
 - `Index/Metadata.iwa`
+- `Index/ObjectContainer.iwa`
+- `Index/CalculationEngine.iwa`
+- `Index/ViewState.iwa`
 - `Index/Tables/*.iwa` for Numbers table data
 
 `Metadata/Properties.plist` is used for stable metadata exposed by `PropertiesPlist`.
@@ -115,6 +118,9 @@ from scratch. The generated package includes:
 - XML `Metadata/Properties.plist`
 - minimal `Index/Document.iwa`, `Index/DocumentMetadata.iwa`,
   `Index/Metadata.iwa`, and `Index/DocumentStylesheet.iwa` archives
+- compatibility-oriented `Index/ObjectContainer.iwa`,
+  `Index/CalculationEngine.iwa`, `Index/ViewState.iwa`, and
+  `Index/AnnotationAuthorStorage.iwa` archives
 - generated `Index/Tables/DataList*.iwa` and `Index/Tables/Tile*.iwa`
   archives for scalar table cells
 
@@ -167,7 +173,7 @@ Tile archives store cell data in a stream of row messages in the body. Each row 
 
 ### Field 6 Layout (wide-cell records)
 
-Field 6 is the cell-storage buffer. Each column's record starts at its field-7 offset; records are **variable length** and each begins with the version byte `0x05`. `decode_cells` in `src/numbers/table.rs` implements this. (The legacy field 3/4 `_pre_bnc` arrays use a fixed 12-byte stride and are ignored — reading field-4 offsets into field 6 lands mid-record for every cell after the first.)
+Field 6 is the cell-storage buffer. Each column's record starts at its field-7 offset; records are **variable length** and each begins with the version byte `0x05`. `decode_cells` in `src/numbers/table.rs` implements this. The legacy field 3/4 `_pre_bnc` arrays use a fixed 12-byte stride and are ignored by the reader — reading field-4 offsets into field 6 lands mid-record for every cell after the first in real files. The writer still emits field 3/4 because real Numbers tiles retain them and consumers may expect those fields to exist.
 
 Record header *(structurally grounded — verified across multiple real tile archives)*:
 

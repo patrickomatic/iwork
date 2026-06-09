@@ -128,12 +128,12 @@ packages:
 
 - `numbers::Workbook` and `numbers::WritableTable` let you assemble table rows from scratch
 - `Workbook::encode_table_archives()` emits fresh `Tile` and string `DataList` archives for scalar cells
-- `Workbook::to_numbers_bytes()` and `Workbook::save_numbers()` wrap those archives in a ZIP package with minimal metadata and core IWA members
+- `Workbook::to_numbers_bytes()` and `Workbook::save_numbers()` wrap those archives in a ZIP package with metadata, core IWA members, table archives, and compatibility-oriented stubs for object container, calculation engine, and view state
 
 The generated package is currently intended for round-tripping through this
-crate. Full Apple Numbers compatibility still requires a complete document
-object graph, stylesheet links, table references, view state, and calculation
-metadata.
+crate. Full Apple Numbers compatibility still requires decoding and generating
+the real document/table object graph and its stylesheet, view-state, and
+calculation-engine references.
 
 The current parser relies on these reverse-engineered format details:
 
