@@ -540,6 +540,58 @@ fn pivot_table_preserves_grouped_text_rows() -> Result<(), Error> {
 }
 
 #[test]
+fn decoded_tables_link_cells_to_models_and_scope_strings() -> Result<(), Error> {
+    let spreadsheet = numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?.spreadsheet()?;
+    let decoded = spreadsheet.decoded_tables();
+
+    // Each model-driven table decodes exactly as many rows as the model declares.
+    for (model, table) in &decoded {
+        let rows = u32::try_from(table.rows().len()).unwrap_or(0);
+        assert_eq!(
+            rows,
+            model.row_count(),
+            "table {:?} decoded {rows} rows but the model declares {}",
+            model.name(),
+            model.row_count(),
+        );
+    }
+
+    // String cells resolve through each table's own DataList, so the two tables
+    // carry their own distinct text rather than a collided global pool.
+    let text_of = |name: &str| -> Vec<String> {
+        decoded
+            .iter()
+            .find(|(model, _)| model.name() == Some(name))
+            .map(|(_, table)| {
+                table
+                    .rows()
+                    .iter()
+                    .flat_map(|row| &row.cells)
+                    .filter_map(|cell| cell.as_text().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    let transactions = text_of("Transactions");
+    let summary = text_of("Summary by Category");
+    assert!(
+        transactions.iter().any(|text| text == "Groceries"),
+        "Transactions should contain its own category cell"
+    );
+    assert!(
+        summary.iter().any(|text| text == "Budget"),
+        "Summary should contain its own header cell"
+    );
+    assert!(
+        !summary.iter().any(|text| text == "Groceries"),
+        "Summary must not borrow the Transactions string pool"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn numbers_table_models_expose_names_and_geometry() -> Result<(), Error> {
     let models = numbers::Document::open("examples/numbers/my_stocks.numbers")?
         .spreadsheet()?

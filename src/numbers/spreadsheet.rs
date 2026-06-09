@@ -97,6 +97,52 @@ impl Spreadsheet {
         &self.table_archives
     }
 
+    /// Decodes one table's cells, driven by its [`TableModel`].
+    ///
+    /// Unlike [`Spreadsheet::tables`], this gathers exactly the tiles the model
+    /// references (merged in tile order) and resolves string cells through the
+    /// model's own string `DataList`, so per-table string keys never collide
+    /// across tables. Tiles or the string list missing from the package yield an
+    /// empty contribution rather than an error.
+    pub fn table(&self, model: &TableModel) -> Table {
+        let strings = model
+            .string_data_list_id()
+            .and_then(|id| self.archive_by_root(id))
+            .map(decode_string_datalist)
+            .unwrap_or_default();
+
+        let mut rows = Vec::new();
+        for tile_id in model.tile_ids() {
+            if let Some(tile) = self.archive_by_root(*tile_id) {
+                rows.extend(Table::from_tile(tile, &strings).into_rows());
+            }
+        }
+        Table::from_rows(rows)
+    }
+
+    /// Decodes every table in the document as `(model, cells)` pairs.
+    ///
+    /// This is the table-model-driven counterpart to [`Spreadsheet::tables`]: it
+    /// returns one entry per real table, each carrying its name and geometry
+    /// (via the [`TableModel`]) alongside its decoded rows.
+    pub fn decoded_tables(&self) -> Vec<(TableModel, Table)> {
+        self.table_models()
+            .into_iter()
+            .map(|model| {
+                let table = self.table(&model);
+                (model, table)
+            })
+            .collect()
+    }
+
+    /// Finds a decoded table archive (`Tile`, `DataList`, …) by its root object id.
+    fn archive_by_root(&self, root_object_id: u64) -> Option<&IwaArchive> {
+        self.table_archives
+            .iter()
+            .map(|table_archive| &table_archive.archive)
+            .find(|archive| archive.descriptor().root_object_id == Some(root_object_id))
+    }
+
     /// Decodes all table tiles in path order.
     ///
     /// String cells are resolved through any `DataList` archives found under
