@@ -278,7 +278,7 @@ Keynote string extraction works slide-by-slide:
 - it returns length-delimited values only when they are valid UTF-8 text fields
 
 This powers `keynote::Document::presentation()`, which returns a list
-of semantic slides containing:
+of slides containing:
 
 - the source archive path
 - whether the archive is a template slide
