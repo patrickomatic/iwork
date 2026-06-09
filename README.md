@@ -166,19 +166,29 @@ crate. Full Apple Numbers compatibility still requires decoding and generating
 the real document/table object graph and its stylesheet, view-state, and
 calculation-engine references.
 
-Two example tools help map those missing structures without turning fixture
-content into parser heuristics:
+Example tools help map those missing structures without turning fixture content
+into parser heuristics. They decode the IWA/Snappy framing and hand the raw
+protobuf payloads to the [`protorev`](crates/protorev) workbench rather than
+re-implementing wire decoding:
 
 ```bash
+# IWA framing + object stream overview, and a structural diff between packages
 cargo run --example dump_iwa_graph -- path/to/document.numbers
 cargo run --example diff_iwa_graph -- left.numbers right.numbers
+cargo run --example inspect_numbers -- path/to/document.numbers
+
+# Schema-infer one object type across packages (protorev schema/explain/values/diff)
+cargo run --example iwa_corpus -- schema 6001 examples/numbers/*.numbers
+cargo run --example iwa_corpus -- diff   6001 before.numbers after.numbers
 ```
 
-`dump_iwa_graph` prints package entries, IWA descriptor refs, leading refs,
-chunk sizes, field-shape summaries, and printable strings for navigation.
-`diff_iwa_graph` compares two packages at that structural level so reverse
-engineering can focus on controlled one-edit deltas, such as adding one table,
-renaming one sheet, or changing one cell style.
+`dump_iwa_graph`/`diff_iwa_graph` work at the IWA framing and object-graph
+level (entries, descriptor refs, object-type counts) with a `protorev` corpus
+shape per archive. `iwa_corpus` gathers every object of one message type and
+runs `protorev`'s confidence-gated schema inference, per-field explanations,
+value sampling, and corpus diffing on it — so reverse engineering can focus on
+controlled one-edit deltas, such as adding one table, renaming one sheet, or
+changing one cell style.
 
 The current parser relies on these reverse-engineered format details:
 
