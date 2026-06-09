@@ -63,3 +63,16 @@ When investigating binary format details, distinguish sharply between:
 - **Data-inferred guesses** — interpretations that only work because the example file happened to contain certain values (e.g., "this u32 looks like a dollar amount"). These are not reliable format knowledge.
 
 The example files in `examples/` contain arbitrary user data. Never use the actual cell values (prices, amounts, dates, strings) to reason about what an encoding means — those values are content, not format. A pattern that only appears to work because the example has budget data may break entirely on a different document.
+
+### Reverse-Engineering Tooling
+
+Do format investigation with the committed tools, **not throwaway scripts**. `protorev` (`crates/protorev`, a separate workspace crate) is the protobuf reverse-engineering workbench; the `iwork` examples decode the IWA/Snappy framing and feed raw object payloads to it. Don't hand-roll protobuf wire decoding or shape inference in examples — delegate to `protorev`.
+
+- `cargo run --example dump_iwa_graph -- <file>` / `diff_iwa_graph -- <a> <b>` — IWA framing + object-stream overview; per-archive shape and diff come from a `protorev` `Corpus`.
+- `cargo run --example inspect_numbers -- <file> [name-filter]` — per-object protobuf dump via `protorev::dump_message`.
+- `cargo run --example iwa_corpus -- {schema|infer|explain|values|diff} <type> [<field.path>] <file>...` — runs `protorev`'s full feature set over every object of one message type (`<type>` is an iWork message-type id; `<field.path>` is a dotted path like `4.3`).
+- `cargo run --example iwa_refs -- {types|edges|refs} ... <file>...` — cross-object reference graph (object-graph level; not something `protorev` covers).
+
+Boundaries: `protorev` is a `[dev-dependencies]` of `iwork`, used only by examples — the library never depends on it. `src/protobuf.rs` remains the production decoder. `protorev` is maintained on its own; don't refactor its source or README as part of `iwork` work unless asked.
+
+`protorev`'s confidence gating encodes the structural-vs-data-inferred rule above: a field observed in every relevant sample is `high` confidence; a sparsely observed one stays `medium`/`low` until corroborated across controlled fixtures. Promote a field into parser/writer behavior only once the evidence is `high` or cross-validated independently (e.g. tile-decoded geometry matching a declared count).
