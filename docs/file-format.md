@@ -210,25 +210,51 @@ metadata.
 
 ### Reverse-engineering workflow
 
-Use the graph tools when investigating the remaining object graph:
+Protobuf introspection is handled by the `protorev` workbench
+(`crates/protorev`); the iwork examples only decode the IWA/Snappy framing and
+hand raw payloads to it, rather than re-implementing wire decoding.
+
+**IWA framing overview.** Use the graph tools to see the package's archives and
+object stream:
 
 ```bash
 cargo run --example dump_iwa_graph -- path/to/document.numbers
 cargo run --example diff_iwa_graph -- before.numbers after.numbers
+cargo run --example inspect_numbers -- path/to/document.numbers [name-filter]
 ```
 
-`dump_iwa_graph` summarizes every `.iwa` archive in a package: descriptor
-fields, object references, leading object references, chunk sizes, body length,
-top-level body fields, recursive protobuf field shapes, and printable strings.
-The strings are included only as landmarks for humans reading a dump; they are
-not format evidence.
+`dump_iwa_graph` summarizes every `.iwa` archive: descriptor fields, object
+references, chunk sizes, the decoded object stream (id, type, payload length),
+a `protorev` corpus shape over the object payloads, and printable strings (the
+strings are landmarks for humans, not format evidence). `diff_iwa_graph`
+compares two packages by entry set, object-type counts, and a `protorev` corpus
+diff. `inspect_numbers` dumps each object's protobuf with `protorev`
+(byte offsets plus message/utf8/packed-varint hints).
 
-`diff_iwa_graph` compares two packages by entry set and by per-archive shape.
-The intended workflow is to create controlled Apple Numbers fixtures that differ
-by one operation, then diff them against each other and against this crate's
-generated package. Stable structural deltas can be promoted into parser or
-writer behavior; deltas that merely track authored content must stay out of the
-format model.
+**Object-type schema inference.** `iwa_corpus` gathers every object of one
+message type across one or more packages and runs the full `protorev` feature
+set on that corpus:
+
+```bash
+cargo run --example iwa_corpus -- schema  6001 examples/numbers/*.numbers
+cargo run --example iwa_corpus -- explain 6001 9 examples/numbers/*.numbers
+cargo run --example iwa_corpus -- values  6001 8 examples/numbers/*.numbers
+cargo run --example iwa_corpus -- diff    6001 before.numbers after.numbers
+```
+
+`schema` emits a confidence-gated draft `.proto` (`--min-confidence
+high|medium|low`); `explain` reports one field's presence and confidence;
+`values` samples a field's observed values; and `diff` compares the corpus for a
+type between two packages. The field path is a `protorev` dotted path
+(`4.3` = `TableModel` → `DataStore` → `TileStorage`).
+
+The intended discipline is to create controlled Apple Numbers fixtures that
+differ by one operation, then `diff` them. Stable structural deltas can be
+promoted into parser or writer behavior; deltas that merely track authored
+content must stay out of the format model. `protorev`'s confidence gating
+encodes the same rule: a field observed in every relevant sample is `high`
+confidence, while a sparsely observed one (such as `TableModel` field 9) stays
+`medium` until corroborated.
 
 ## Stylesheet IWA Format (DocumentStylesheet.iwa)
 
