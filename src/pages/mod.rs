@@ -1,12 +1,11 @@
 //! Pages-specific entry points.
 //!
-//! The current reader exposes a best-effort document view for user-facing text
-//! such as titles, headings, and ordered text fragments from
+//! The current reader exposes ordered UTF-8 string fields decoded from
 //! `Index/Document.iwa`.
 //!
-//! The parser is intentionally conservative: it returns high-confidence
-//! text and heading candidates from the current fixtures, but it is not yet a
-//! full structural parse of Pages paragraph or text-run objects.
+//! The parser is intentionally conservative: it does not classify titles,
+//! headings, paragraphs, or text runs until those Pages object fields are
+//! decoded explicitly.
 
 use std::path::Path;
 

@@ -1,13 +1,11 @@
 //! Keynote-specific entry points.
 //!
-//! The current reader exposes a best-effort presentation view for slide text,
-//! placeholder titles, layout names, and media descriptions recovered from
-//! slide archives.
+//! The current reader exposes ordered UTF-8 string fields decoded from
+//! slide-related archives.
 //!
-//! The parser is intentionally conservative and read-only. It is useful
-//! for recovering presentation content from the current fixtures, but it is not
-//! yet a full structural parse of Keynote slides, presenter notes, or animation
-//! timelines.
+//! The parser is intentionally conservative and read-only. It does not classify
+//! layout names, titles, media descriptions, presenter notes, or animations
+//! until those Keynote object fields are decoded explicitly.
 
 use std::path::Path;
 
