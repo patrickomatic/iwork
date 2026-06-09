@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use super::CellValue;
-use crate::Error;
 use crate::iwa::{IwaArchive, IwaArchiveDescriptor, IwaPacket};
 use crate::protobuf::{ProtoField, ProtoMessage};
+use crate::{Error, PackageWriter};
 
 #[derive(Debug, Clone, Default)]
 pub struct Workbook {
@@ -30,6 +31,39 @@ impl Workbook {
             .enumerate()
             .map(|(index, table)| table.encode_archives(index))
             .collect()
+    }
+
+    /// Serializes this workbook as a minimal `.numbers` package.
+    ///
+    /// The generated package contains the metadata, core IWA members, stylesheet
+    /// archive, and table archives needed for this crate to re-open and decode
+    /// the workbook. This is intentionally a minimal package writer, not yet a
+    /// complete Apple Numbers document graph.
+    pub fn to_numbers_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut writer = PackageWriter::new();
+        writer
+            .add_entry("Metadata/Properties.plist", properties_plist())
+            .add_entry("Index/Document.iwa", encode_empty_archive(1001, 1)?)
+            .add_entry("Index/DocumentMetadata.iwa", encode_empty_archive(1002, 2)?)
+            .add_entry("Index/Metadata.iwa", encode_empty_archive(1003, 3)?)
+            .add_entry(
+                "Index/DocumentStylesheet.iwa",
+                encode_empty_archive(1004, 4)?,
+            );
+
+        for archive in self.encode_table_archives()? {
+            writer
+                .add_entry(archive.datalist_path, archive.datalist)
+                .add_entry(archive.tile_path, archive.tile);
+        }
+
+        writer.finish()
+    }
+
+    /// Writes this workbook as a minimal `.numbers` package.
+    pub fn save_numbers(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+        std::fs::write(path, self.to_numbers_bytes()?)?;
+        Ok(())
     }
 }
 
@@ -113,6 +147,34 @@ const TILE_OFFSET_SLOTS: usize = 255;
 const TILE_ROW_STORAGE_VERSION: u64 = 5;
 /// `MessageInfo.version` triple (`f2`) carried by every real archive header.
 const ARCHIVE_VERSION: [u8; 3] = [1, 0, 5];
+
+fn properties_plist() -> Vec<u8> {
+    br#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>documentUUID</key>
+  <string>iwork-rs-generated-document</string>
+  <key>fileFormatVersion</key>
+  <string>14.4.1</string>
+  <key>isMultiPage</key>
+  <false/>
+  <key>revision</key>
+  <string>1</string>
+  <key>stableDocumentUUID</key>
+  <string>iwork-rs-generated-document</string>
+  <key>versionUUID</key>
+  <string>iwork-rs-generated-version</string>
+</dict>
+</plist>
+"#
+    .to_vec()
+}
+
+fn encode_empty_archive(root_object_id: u64, kind: u64) -> Result<Vec<u8>, Error> {
+    let header = synthesize_header(root_object_id, kind, 0)?;
+    IwaArchive::encode(header, Vec::new())
+}
 
 fn encode_tile_archive(
     rows: &[Vec<CellValue>],
@@ -286,6 +348,7 @@ fn encode_cell_record(cell: &CellValue, strings: &BTreeMap<String, u32>) -> Resu
 mod tests {
     use super::*;
     use crate::numbers::table::{Table, decode_string_datalist};
+    use crate::{DocumentKind, PackageSupport, numbers};
 
     #[test]
     fn encoded_archives_round_trip_scalar_cells() -> Result<(), Error> {
@@ -324,5 +387,74 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn workbook_serializes_to_readable_numbers_package() -> Result<(), Error> {
+        let workbook = sample_workbook();
+        let bytes = workbook.to_numbers_bytes()?;
+        let document = numbers::Document::from_bytes(bytes)?;
+        let report = document.inspect("generated.numbers")?;
+
+        assert_eq!(report.kind, DocumentKind::Numbers);
+        assert_eq!(report.support, PackageSupport::SupportedDirectIndexEntries);
+        assert_eq!(
+            report.properties.document_uuid.as_deref(),
+            Some("iwork-rs-generated-document")
+        );
+
+        let spreadsheet = document.spreadsheet()?;
+        let tables = spreadsheet.tables();
+        assert_eq!(tables.len(), 1);
+        assert_eq!(
+            tables[0].rows()[1].cells,
+            vec![
+                CellValue::Text("Utilities".to_owned()),
+                CellValue::Number(42.5),
+                CellValue::Date(625_881_600.0),
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn workbook_saves_to_readable_numbers_file() -> Result<(), Error> {
+        let path =
+            std::env::temp_dir().join(format!("iwork-generated-{}.numbers", std::process::id()));
+        let workbook = sample_workbook();
+
+        workbook.save_numbers(&path)?;
+        let document = numbers::Document::open(&path)?;
+        let tables = document.spreadsheet()?.tables();
+        assert_eq!(tables.len(), 1);
+        assert_eq!(
+            tables[0].rows()[0].cells,
+            vec![
+                CellValue::Text("Category".to_owned()),
+                CellValue::Text("Amount".to_owned()),
+                CellValue::Text("When".to_owned()),
+            ]
+        );
+
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+
+    fn sample_workbook() -> Workbook {
+        let mut workbook = Workbook::new();
+        let mut table = WritableTable::new("Budget");
+        table.push_row(vec![
+            CellValue::Text("Category".to_owned()),
+            CellValue::Text("Amount".to_owned()),
+            CellValue::Text("When".to_owned()),
+        ]);
+        table.push_row(vec![
+            CellValue::Text("Utilities".to_owned()),
+            CellValue::Number(42.5),
+            CellValue::Date(625_881_600.0),
+        ]);
+        workbook.add_table(table);
+        workbook
     }
 }

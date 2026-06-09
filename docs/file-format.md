@@ -36,12 +36,17 @@ The package layout we currently rely on is small:
 
 - `Metadata/Properties.plist`
 - `Index/DocumentStylesheet.iwa`
+- `Index/Document.iwa`
+- `Index/DocumentMetadata.iwa`
+- `Index/Metadata.iwa`
+- `Index/Tables/*.iwa` for Numbers table data
 
 `Metadata/Properties.plist` is used for stable metadata exposed by `PropertiesPlist`.
 
 `Index/DocumentStylesheet.iwa` is currently treated as an opaque byte payload. The inspection path only scans it for simple keyword occurrences such as `bold`, `italic`, `underline`, `strikethrough`, and `font`.
 
-The crate does not yet parse `.iwa` records structurally.
+Numbers spreadsheet reading additionally decodes the table `Tile` and
+`DataList` archives described below.
 
 ## Document Type Detection
 
@@ -102,6 +107,21 @@ The body is a stream of length-delimited protobuf messages. The body often start
 ### Writing IWA archives
 
 `IwaArchive::encode(header, body)` reverses the decode path: it length-prefixes the header packet, appends the body, and emits the result as Snappy chunks. Each chunk holds at most 64 KiB of decompressed bytes (the window real iWork writers use), and the payload is encoded as Snappy literal runs only (no back-references), which is valid Snappy that any reader can decompress. `IwaArchive::reencode()` round-trips a decoded archive losslessly: a reader observes the same header packet and body bytes (only the Snappy framing may differ). This re-encode reproduces every `.iwa` archive in the example documents.
+
+`numbers::Workbook::to_numbers_bytes()` and
+`numbers::Workbook::save_numbers()` synthesize a minimal direct-Index package
+from scratch. The generated package includes:
+
+- XML `Metadata/Properties.plist`
+- minimal `Index/Document.iwa`, `Index/DocumentMetadata.iwa`,
+  `Index/Metadata.iwa`, and `Index/DocumentStylesheet.iwa` archives
+- generated `Index/Tables/DataList*.iwa` and `Index/Tables/Tile*.iwa`
+  archives for scalar table cells
+
+These packages are currently guaranteed only to round-trip through this crate's
+reader. Opening them in Apple Numbers will require a fuller document object
+graph with table references, stylesheet links, view state, and calculation
+metadata.
 
 ## Stylesheet IWA Format (DocumentStylesheet.iwa)
 
