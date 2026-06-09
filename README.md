@@ -56,6 +56,27 @@ fn main() -> Result<(), iwork::Error> {
 }
 ```
 
+List a Numbers document's tables with their names and geometry:
+
+```rust
+use iwork::numbers;
+
+fn main() -> Result<(), iwork::Error> {
+    let document = numbers::Document::open("examples/numbers/my_stocks.numbers")?;
+
+    for model in document.spreadsheet()?.table_models() {
+        println!(
+            "{} — {}x{}",
+            model.name().unwrap_or("(unnamed)"),
+            model.row_count(),
+            model.column_count(),
+        );
+    }
+
+    Ok(())
+}
+```
+
 Read cell values from a Numbers spreadsheet:
 
 ```rust
@@ -120,8 +141,14 @@ fn main() -> Result<(), iwork::Error> {
 
 The Numbers reader currently follows a two-stage model:
 
+- `Spreadsheet::table_models()` decodes each table's name and grid geometry from
+  its `TableModel` object (the authoritative table list)
 - `Spreadsheet::table_archives()` exposes the raw `Index/Tables/*.iwa` archives
 - `Spreadsheet::tables()` resolves those archives into decoded rows and [`CellValue`](src/numbers/table.rs) values
+
+`.iwa` archives are streams of typed objects; `IwaArchive::objects()` decodes the
+full stream and `numbers::message_type_name()` names the known archive and table
+object types (`Document`, `Sheet`, `TableInfo`, `TableModel`, `Tile`, `DataList`, …).
 
 The write-side Numbers support can create minimal crate-readable `.numbers`
 packages:
