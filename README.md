@@ -11,7 +11,7 @@
 - reads Numbers table cell values — text, numbers (decimal128), and dates
 - can build Numbers table archives from scratch for scalar cell data
 - inspects `Index/DocumentStylesheet.iwa` for simple keyword signals
-- extracts best-effort semantic content from Pages documents and Keynote decks
+- extracts UTF-8 string fields from Pages documents and Keynote decks
 
 ## Current Guarantees
 
@@ -81,7 +81,7 @@ fn main() -> Result<(), iwork::Error> {
 }
 ```
 
-Extract semantic text from a Pages document:
+Extract UTF-8 string fields from a Pages document:
 
 ```rust
 use iwork::pages;
@@ -90,14 +90,14 @@ fn main() -> Result<(), iwork::Error> {
     let document = pages::Document::open("examples/pages/term_paper.pages")?;
     let content = document.document()?;
 
-    println!("title: {:?}", content.title());
-    println!("headings: {:?}", content.headings());
+    println!("title: {:?}", content.title());     // None until title fields are structurally decoded
+    println!("headings: {:?}", content.headings()); // empty until heading fields are structurally decoded
     println!("first fragments: {:?}", &content.text_fragments()[..3.min(content.text_fragments().len())]);
     Ok(())
 }
 ```
 
-Extract semantic slide content from a Keynote deck:
+Extract UTF-8 string fields from a Keynote deck:
 
 ```rust
 use iwork::keynote;
@@ -137,50 +137,50 @@ The current parser relies on these reverse-engineered format details:
 - date values are `f64` seconds since the Cocoa epoch (`2001-01-01T00:00:00Z`)
 - decimal values may be stored as IEEE 754-2008 decimal128 and are converted to `f64`
 
-The test suite covers both low-level decoder branches and fixture-backed examples for:
+The test suite covers both low-level decoder branches and fixture-backed structural checks for:
 
-- text header rows from `personal_budget.numbers` and `pivot_table.numbers`
-- decimal128 numeric values from `my_stocks.numbers`
+- text cells, multi-text rows, and grouped text rows
+- finite numeric values decoded through the current cell-storage layout
 - Cocoa-epoch date cells from the Numbers fixtures
 - row decoding behavior around column counts, sentinels, and truncated records
 
-## Pages Semantic Parsing Notes
+## Pages String Field Parsing Notes
 
-The Pages semantic layer is currently best-effort rather than fully structural.
-It scans `Index/Document.iwa` for high-confidence user-facing text and returns:
+The Pages reader currently decodes `Index/Document.iwa` as IWA/protobuf data and
+walks length-delimited fields to return valid UTF-8 string values. It returns:
 
-- an optional title when a strong title candidate is present
-- normalized headings such as `Prologue`, `Subheading`, or `Chapter 1`
-- ordered text fragments that preserve recoverable document prose
+- `None` for title until the title object field is structurally decoded
+- an empty heading list until heading/paragraph style fields are structurally decoded
+- ordered UTF-8 string fields recovered from the document archive
 
-This is enough to extract stable content from the current `term_paper.pages` and
-`modern_novel.pages` fixtures, but it does not yet model Pages paragraphs,
-object graphs, or text runs precisely.
+This avoids treating fixture prose as format knowledge. The parser does not scan
+raw printable byte runs and does not classify strings by matching words from the
+example documents.
 
 Known gaps today:
 
-- some visible titles are split across archive fragments and may return `None`
-- text fragments can still include partial/template prose because the archive
-  interleaves content with formatting and layout bytes
+- title, heading, paragraph, and text-run object fields are not yet mapped
+- returned strings may include non-document metadata fields because the schema is
+  not fully decoded yet
 - this is read-only semantic extraction, not a structured Pages editing model
 
-## Keynote Semantic Parsing Notes
+## Keynote String Field Parsing Notes
 
-The Keynote semantic layer works at the slide-archive level. It scans `Slide*.iwa`
-and `TemplateSlide*.iwa` entries and returns best-effort semantic slide content:
+The Keynote reader works at the slide-archive level. It decodes `Slide*.iwa` and
+`TemplateSlide*.iwa` entries as IWA/protobuf data and walks length-delimited
+fields to return valid UTF-8 string values:
 
-- placeholder or layout titles when they are recoverable
-- slide text fragments
-- media descriptions and alt-text-like strings from image-heavy slides
+- `None` for layout names and titles until those object fields are structurally decoded
+- ordered UTF-8 string fields recovered from each slide archive
+- an empty media description list until media/alt-text fields are structurally decoded
 
-This is enough to recover stable content from the current `basic_white.key`,
-`blueprint.key`, and `parchment.key` fixtures, especially for slide placeholders
-and image descriptions.
+This avoids treating fixture slide text, placeholder words, or image descriptions
+as format knowledge.
 
 Known gaps today:
 
 - slide ordering is inferred from archive paths rather than a fully decoded slide graph
-- template slides and live slides are both surfaced because both carry meaningful text
+- template slides and live slides are both surfaced when they contain UTF-8 fields
 - presenter notes, animations, and exact object placement are not yet modeled
 
 ## Format Notes

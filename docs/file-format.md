@@ -149,7 +149,7 @@ Tile archives store cell data in a stream of row messages in the body. Each row 
 
 Field 6 is the cell-storage buffer. Each column's record starts at its field-7 offset; records are **variable length** and each begins with the version byte `0x05`. `decode_cells` in `src/numbers/table.rs` implements this. (The legacy field 3/4 `_pre_bnc` arrays use a fixed 12-byte stride and are ignored — reading field-4 offsets into field 6 lands mid-record for every cell after the first.)
 
-Record header *(structurally grounded — verified across `Tile-1139365` and `Tile-1139370` in `my_stocks.numbers`)*:
+Record header *(structurally grounded — verified across multiple real tile archives)*:
 
 | Byte(s) | Meaning |
 |---------|---------|
@@ -170,7 +170,7 @@ The low flag bits select the value field that follows at byte 12 (each consumes 
 
 Higher bits (formula id, style ids, number-format id, …) follow but are not needed to recover the value, since the value fields are the lowest four bits and therefore appear first. The cell type byte (offset 1) is *not* used for value typing — the flags are authoritative.
 
-**Decimal128.** Numbers stores numeric values as IEEE 754-2008 decimal128 (16 bytes, little-endian). The two high bytes hold the sign bit and biased exponent; bytes 0-13 plus the low bit of byte 14 form the coefficient. `decode_decimal128` converts to `f64`: `coefficient × 10^(exp)` where `exp = (((b[15] & 0x7f) << 7) | (b[14] >> 1)) - 0x1820` and the sign comes from `b[15] & 0x80`. Decimal storage is why values like `307.34` round-trip exactly. (This mirrors the well-known `numbers-parser` decode.)
+**Decimal128.** Numbers stores numeric values as IEEE 754-2008 decimal128 (16 bytes, little-endian). The two high bytes hold the sign bit and biased exponent; bytes 0-13 plus the low bit of byte 14 form the coefficient. `decode_decimal128` converts to `f64`: `coefficient × 10^(exp)` where `exp = (((b[15] & 0x7f) << 7) | (b[14] >> 1)) - 0x1820` and the sign comes from `b[15] & 0x80`. This mirrors the well-known `numbers-parser` decode.
 
 ### String Lookup
 
@@ -189,67 +189,59 @@ These format details surface through the public Numbers API like this:
 - `Spreadsheet::tables()` resolves string `DataList` entries first, then decodes row/cell values from each tile
 - `TableRow::cells` contains `CellValue::{Empty, Text, Number, Date}`
 
-The fixture-backed tests intentionally assert real header rows and representative values from
-`personal_budget.numbers`, `pivot_table.numbers`, and `my_stocks.numbers` so changes to the
-reverse-engineered row layout fail loudly.
+The fixture-backed tests assert structural properties of decoded rows and cells
+without using authored values from the examples as format scaffolding.
 
-## Pages Semantic Text Extraction
+## Pages String Field Extraction
 
-Pages documents in this repository do not currently expose their prose as clean,
-typed protobuf string fields the way Numbers tables expose cells. The current
-Pages semantic parser therefore takes a more conservative approach:
+Pages documents in this repository are decoded as IWA/protobuf archives, but the
+Pages object graph is not fully mapped yet. The current Pages reader therefore
+takes a narrow structural approach:
 
-- it reads raw `Index/Document.iwa` bytes from the package
-- it extracts printable string runs
-- it filters out known locale, formatting, stylesheet, and UUID noise
-- it normalizes high-confidence headings such as `Chapter N`
+- it decodes `Index/Document.iwa` as an `IwaArchive`
+- it skips leading object-reference records
+- it walks protobuf wire fields and nested length-delimited messages
+- it returns length-delimited values only when they are valid UTF-8 text fields
 
 This powers `pages::Document::document()`, which returns:
 
-- an optional title when a strong multi-word title candidate is present
-- normalized headings (`Prologue`, `Subheading`, `Chapter 1`, ...)
-- ordered text fragments recovered from the document archive
+- `None` for title until the title object field is structurally decoded
+- an empty heading list until heading/paragraph style fields are structurally decoded
+- ordered UTF-8 string fields recovered from the document archive
 
-This is intentionally a **best-effort semantic layer**, not a complete model of
-Pages paragraphs, text runs, or anchored objects. The fixture coverage asserts
-recoverable content from `modern_novel.pages` and `term_paper.pages`.
+This is intentionally not a semantic classifier. It does not scan raw printable
+byte runs, filter strings by matching fixture-specific words, or infer headings
+from authored text.
 
 Current known limitations:
 
-- some visually contiguous titles are split across multiple archive fragments,
-  so title recovery can legitimately return `None`
-- extracted prose may still include partial template text or other nearby
-  printable runs when content and formatting bytes are interleaved
-- the parser does not yet reconstruct paragraph boundaries, text-run styling,
-  or anchored object placement
+- returned strings may include non-prose metadata fields because the full schema
+  is not decoded yet
+- the parser does not yet reconstruct titles, headings, paragraph boundaries,
+  text-run styling, or anchored object placement
 
-## Keynote Semantic Slide Extraction
+## Keynote String Field Extraction
 
-Keynote slide content in the current fixtures is often easier to recover from
-individual `Slide*.iwa` and `TemplateSlide*.iwa` archives than from the top-level
-document archive. The current semantic parser therefore works slide-by-slide:
+Keynote string extraction works slide-by-slide:
 
 - it decodes each slide-related archive under `Index/`
-- it extracts printable strings from the archive body
-- it filters out known locale, transition, UUID, and formatting noise
-- it classifies layout names, placeholder titles, and media descriptions
+- it skips leading object-reference records
+- it walks protobuf wire fields and nested length-delimited messages
+- it returns length-delimited values only when they are valid UTF-8 text fields
 
 This powers `keynote::Document::presentation()`, which returns a list
 of semantic slides containing:
 
 - the source archive path
 - whether the archive is a template slide
-- an optional layout name
-- an optional title / placeholder title
-- ordered text fragments
-- media descriptions recovered from slide assets
+- `None` for layout name until that object field is structurally decoded
+- `None` for title until that object field is structurally decoded
+- ordered UTF-8 string fields
+- an empty media description list until media/alt-text fields are structurally decoded
 
 Current known limitations:
 
 - slide ordering is based on archive-path sorting rather than a fully decoded
   presentation graph
-- template and live slides are both surfaced because both contain meaningful
-  text in the current fixtures
+- template and live slides are both surfaced when they contain UTF-8 fields
 - presenter notes, animations, and exact on-slide object structure are not yet parsed
-- some recovered text still reflects placeholder/template phrasing rather than
-  finalized authored content

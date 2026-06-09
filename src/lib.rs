@@ -17,6 +17,7 @@ use std::path::Path;
 mod error;
 mod inspect;
 mod iwa;
+mod iwa_text;
 mod kind;
 mod package;
 mod plist;
