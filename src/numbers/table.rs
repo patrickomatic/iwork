@@ -266,68 +266,10 @@ fn decode_decimal128(b: &[u8]) -> f64 {
     mantissa * 10f64.powi(exp)
 }
 
-/// Encode an `f64` as a 16-byte IEEE 754-2008 decimal128 value, matching the
-/// layout [`decode_decimal128`] reads (and that Numbers stores).
-///
-/// The value is expressed as `coefficient × 10^exp` with a non-positive `exp`
-/// chosen so the coefficient is integral; up to 18 fractional digits are kept.
-/// This is the inverse of [`decode_decimal128`] for finite values.
-pub(crate) fn encode_decimal128(value: f64) -> [u8; 16] {
-    let mut out = [0u8; 16];
-    if !value.is_finite() {
-        return out;
-    }
-
-    let negative = value.is_sign_negative();
-    let mut magnitude = value.abs();
-
-    // Scale up by powers of ten until the magnitude is (near) integral.
-    let mut scale = 0u32;
-    while scale < 18 {
-        let fraction = magnitude.fract();
-        if fraction <= 1e-9 || fraction >= 1.0 - 1e-9 {
-            break;
-        }
-        magnitude *= 10.0;
-        scale += 1;
-    }
-
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let coefficient = magnitude.round() as u128;
-    let biased_exponent = 0x1820_i32 - i32::try_from(scale).unwrap_or(0);
-
-    let low = coefficient & ((1u128 << 112) - 1);
-    out[..14].copy_from_slice(&low.to_le_bytes()[..14]);
-    let coefficient_high_bit = u8::try_from((coefficient >> 112) & 1).unwrap_or(0);
-
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let biased = biased_exponent as u32;
-    out[14] = (((biased & 0x7f) << 1) as u8) | coefficient_high_bit;
-    out[15] = ((biased >> 7) & 0x7f) as u8;
-    if negative {
-        out[15] |= 0x80;
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ProtoMessage;
-
-    #[test]
-    fn decimal128_round_trips_through_decode() {
-        for value in [
-            0.0, 1.0, 150.0, 850.0, 1000.0, 42.5, 307.34, -19.95, 1234.56,
-        ] {
-            let encoded = encode_decimal128(value);
-            let decoded = decode_decimal128(&encoded);
-            assert!(
-                (decoded - value).abs() < 1e-6,
-                "decimal128 round-trip failed for {value}: got {decoded}"
-            );
-        }
-    }
 
     #[test]
     fn decode_cell_record_decodes_double_date_and_text_variants() {

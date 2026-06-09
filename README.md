@@ -127,8 +127,7 @@ The write-side Numbers support is currently lower level:
 
 - `numbers::Workbook` and `numbers::WritableTable` let you assemble table rows from scratch
 - `Workbook::encode_table_archives()` emits fresh `Tile` and string `DataList` archives for scalar cells
-- `Workbook::encode_scaffold_package()` emits a `.numbers` package from a bundled scaffold shell with a rewritten visible table; every `.iwa` member is re-serialized through this crate's own IWA encoder (`IwaArchive::reencode`), so the whole archive graph is produced by our writer
-- the scaffold still seeds the document/object graph (`Document`, `Metadata`, `CalculationEngine`, `ViewState`, …) from the bundled fixture; synthesizing those archives from scratch is the remaining work
+- full `.numbers` package synthesis is not implemented yet; the remaining work is generating the document/object graph (`Document`, `Metadata`, `CalculationEngine`, `ViewState`, ...), stylesheet links, and table references without using a fixture as a seed
 
 The current parser relies on these reverse-engineered format details:
 
