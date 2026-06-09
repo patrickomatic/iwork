@@ -5,9 +5,11 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use iwork::numbers::message_type_name;
-use iwork::{Error, IwaArchive, Package, ProtoMessage, ProtoValue};
+use iwork::{Error, IwaArchive, Package};
+use protorev::{Corpus, Message};
 
-const MAX_PROTO_DEPTH: usize = 12;
+/// Recursion depth for protorev corpus aggregation over object payloads.
+const CORPUS_DEPTH: usize = 8;
 const MAX_STRINGS_PER_ARCHIVE: usize = 80;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,10 +34,10 @@ struct ArchiveSummary {
     object_references: Vec<ObjectReferenceSummary>,
     leading_object_references: Vec<u64>,
     objects: Vec<ObjectSummary>,
+    /// Primary-message payload of each object, fed to `protorev` for shape.
+    object_payloads: Vec<Vec<u8>>,
     chunks: Vec<ChunkSummary>,
     body_len: usize,
-    top_level_fields: BTreeMap<u32, usize>,
-    shape_paths: BTreeMap<String, usize>,
     strings: Vec<String>,
     decode_error: Option<String>,
 }
@@ -135,6 +137,7 @@ impl ArchiveSummary {
     fn from_bytes(bytes: &[u8]) -> Self {
         match IwaArchive::decode(bytes) {
             Ok(archive) => {
+                let decoded_objects = archive.objects();
                 let mut summary = Self {
                     root_object_id: archive.descriptor().root_object_id,
                     kind_hint: archive.descriptor().kind_hint,
@@ -150,8 +153,7 @@ impl ArchiveSummary {
                         })
                         .collect(),
                     leading_object_references: archive.leading_object_references(),
-                    objects: archive
-                        .objects()
+                    objects: decoded_objects
                         .iter()
                         .map(|object| ObjectSummary {
                             identifier: object.identifier,
@@ -159,6 +161,10 @@ impl ArchiveSummary {
                             type_name: object.message_type.and_then(message_type_name),
                             payload_len: object.payload.len(),
                         })
+                        .collect(),
+                    object_payloads: decoded_objects
+                        .iter()
+                        .map(|object| object.payload.clone())
                         .collect(),
                     chunks: archive
                         .chunks()
@@ -170,8 +176,6 @@ impl ArchiveSummary {
                         })
                         .collect(),
                     body_len: archive.body().len(),
-                    top_level_fields: BTreeMap::new(),
-                    shape_paths: BTreeMap::new(),
                     strings: archive.ascii_strings(4),
                     decode_error: None,
                 };
@@ -179,34 +183,6 @@ impl ArchiveSummary {
                 summary.strings.sort();
                 summary.strings.dedup();
                 summary.strings.truncate(MAX_STRINGS_PER_ARCHIVE);
-
-                if let Some(messages) = collect_body_stream(
-                    archive.body(),
-                    archive.leading_object_references_len(),
-                    &mut summary.top_level_fields,
-                ) {
-                    for (index, message) in messages.iter().enumerate() {
-                        collect_message_shape(
-                            message,
-                            &format!("$stream[{index}]"),
-                            0,
-                            &mut summary.shape_paths,
-                        );
-                    }
-                } else {
-                    match ProtoMessage::decode(archive.body()) {
-                        Ok(message) => {
-                            for field in message.fields() {
-                                *summary.top_level_fields.entry(field.number).or_insert(0) += 1;
-                            }
-                            collect_message_shape(&message, "$", 0, &mut summary.shape_paths);
-                        }
-                        Err(error) => {
-                            summary.decode_error = Some(error.to_string());
-                        }
-                    }
-                }
-
                 summary
             }
             Err(error) => Self {
@@ -216,10 +192,9 @@ impl ArchiveSummary {
                 object_references: Vec::new(),
                 leading_object_references: Vec::new(),
                 objects: Vec::new(),
+                object_payloads: Vec::new(),
                 chunks: Vec::new(),
                 body_len: 0,
-                top_level_fields: BTreeMap::new(),
-                shape_paths: BTreeMap::new(),
                 strings: Vec::new(),
                 decode_error: Some(error.to_string()),
             },
@@ -233,6 +208,12 @@ impl ArchiveSummary {
             "descriptor root={:?} kind={:?} body_hint={:?} body_len={}",
             self.root_object_id, self.kind_hint, self.body_hint, self.body_len
         );
+
+        if let Some(error) = &self.decode_error {
+            let _ = writeln!(out, "decode_error={error}");
+            let _ = writeln!(out);
+            return;
+        }
 
         let _ = writeln!(out, "chunks:");
         for chunk in &self.chunks {
@@ -265,22 +246,12 @@ impl ArchiveSummary {
             );
         }
 
-        // The whole-body shape decode only succeeds for single-object archives;
-        // composite archives are now described by `objects` above instead.
-        if let Some(error) = &self.decode_error {
-            let _ = writeln!(out, "body_shape_decode_error={error}");
-            let _ = writeln!(out);
-            return;
-        }
-
-        let _ = writeln!(out, "top_level_fields:");
-        for (field, count) in &self.top_level_fields {
-            let _ = writeln!(out, "  f{field}: {count}");
-        }
-
-        let _ = writeln!(out, "shape:");
-        for (shape, count) in &self.shape_paths {
-            let _ = writeln!(out, "  {shape} x{count}");
+        // Protobuf field shape across this archive's object payloads, via the
+        // protorev workbench (the iwork tooling no longer hand-rolls this).
+        let corpus = build_corpus(&self.object_payloads);
+        let _ = writeln!(out, "proto shape (protorev):");
+        for line in corpus.summary().lines() {
+            let _ = writeln!(out, "  {line}");
         }
 
         let _ = writeln!(out, "strings:");
@@ -291,122 +262,13 @@ impl ArchiveSummary {
     }
 }
 
-fn collect_body_stream(
-    bytes: &[u8],
-    start: usize,
-    top_level_fields: &mut BTreeMap<u32, usize>,
-) -> Option<Vec<ProtoMessage>> {
-    let mut cursor = start;
-    let mut messages = Vec::new();
-
-    while cursor < bytes.len() {
-        let tag = read_varint(bytes, &mut cursor).ok()?;
-        if tag == 0 {
-            return None;
-        }
-        let field_number = u32::try_from(tag >> 3).ok()?;
-        let wire_type = tag & 0x07;
-        *top_level_fields.entry(field_number).or_insert(0) += 1;
-
-        match wire_type {
-            0 => {
-                let _ = read_varint(bytes, &mut cursor).ok()?;
-            }
-            1 => {
-                cursor = cursor.checked_add(8)?;
-                if cursor > bytes.len() {
-                    return None;
-                }
-            }
-            2 => {
-                let len = usize::try_from(read_varint(bytes, &mut cursor).ok()?).ok()?;
-                let end = cursor.checked_add(len)?;
-                let value = bytes.get(cursor..end)?;
-                cursor = end;
-                if let Ok(message) = ProtoMessage::decode(value) {
-                    messages.push(message);
-                }
-            }
-            5 => {
-                cursor = cursor.checked_add(4)?;
-                if cursor > bytes.len() {
-                    return None;
-                }
-            }
-            _ => return None,
-        }
-    }
-
-    Some(messages)
-}
-
-fn collect_message_shape(
-    message: &ProtoMessage,
-    path: &str,
-    depth: usize,
-    shapes: &mut BTreeMap<String, usize>,
-) {
-    if depth >= MAX_PROTO_DEPTH {
-        return;
-    }
-
-    for field in message.fields() {
-        let child_path = format!("{path}.{}", field.number);
-        let descriptor = match &field.value {
-            ProtoValue::Varint(_) => "varint".to_owned(),
-            ProtoValue::Fixed32(_) => "fixed32".to_owned(),
-            ProtoValue::Fixed64(_) => "fixed64".to_owned(),
-            ProtoValue::LengthDelimited(bytes) => {
-                let len_bucket = length_bucket(bytes.len());
-                match ProtoMessage::decode(bytes) {
-                    Ok(nested) => {
-                        *shapes
-                            .entry(format!("{child_path}:message:{len_bucket}"))
-                            .or_insert(0) += 1;
-                        collect_message_shape(&nested, &child_path, depth + 1, shapes);
-                        continue;
-                    }
-                    Err(_) => format!("bytes:{len_bucket}"),
-                }
-            }
-        };
-        *shapes
-            .entry(format!("{child_path}:{descriptor}"))
-            .or_insert(0) += 1;
-    }
-}
-
-fn read_varint(bytes: &[u8], cursor: &mut usize) -> Result<u64, ()> {
-    let mut shift = 0u32;
-    let mut value = 0u64;
-
-    loop {
-        if shift >= 64 {
-            return Err(());
-        }
-
-        let byte = *bytes.get(*cursor).ok_or(())?;
-        *cursor += 1;
-        value |= u64::from(byte & 0x7f) << shift;
-
-        if byte & 0x80 == 0 {
-            return Ok(value);
-        }
-
-        shift += 7;
-    }
-}
-
-fn length_bucket(len: usize) -> &'static str {
-    match len {
-        0 => "0",
-        1..=4 => "1..4",
-        5..=16 => "5..16",
-        17..=64 => "17..64",
-        65..=256 => "65..256",
-        257..=1024 => "257..1024",
-        _ => "1025+",
-    }
+/// Builds a protorev corpus from the protobuf payloads that decode cleanly.
+fn build_corpus(object_payloads: &[Vec<u8>]) -> Corpus {
+    let messages = object_payloads
+        .iter()
+        .filter_map(|payload| Message::decode(payload).ok())
+        .collect::<Vec<_>>();
+    Corpus::from_messages(&messages, CORPUS_DEPTH)
 }
 
 fn diff_graphs(
@@ -503,13 +365,16 @@ fn diff_archive(path: &str, left: &ArchiveSummary, right: &ArchiveSummary, out: 
         &object_type_counts(&right.objects),
         &mut section,
     );
-    diff_map(
-        "top_level_fields",
-        &left.top_level_fields,
-        &right.top_level_fields,
-        &mut section,
-    );
-    diff_map("shape", &left.shape_paths, &right.shape_paths, &mut section);
+    if left.object_payloads != right.object_payloads {
+        let corpus_diff = Corpus::diff(
+            &build_corpus(&left.object_payloads),
+            &build_corpus(&right.object_payloads),
+        );
+        let _ = writeln!(section, "proto shape diff (protorev):");
+        for line in corpus_diff.lines() {
+            let _ = writeln!(section, "  {line}");
+        }
+    }
     diff_vec("strings", &left.strings, &right.strings, &mut section);
 
     if !section.is_empty() {

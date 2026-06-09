@@ -12,6 +12,9 @@ resolver = "3"
 
 [dependencies]
 
+[dev-dependencies]
+protorev = { path = "crates/protorev" }
+
 [lints]
 workspace = true
 
