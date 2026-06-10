@@ -28,10 +28,15 @@ const STORE_FIELD_TILES: u32 = 3;
 const STORE_FIELD_STRINGS: u32 = 4;
 /// `TileStorage.field 1` is the repeated list of `(tile index, tile reference)`.
 const TILES_FIELD_ENTRIES: u32 = 1;
+/// `TileStorage.field 2` is the tile size: the number of rows each tile spans.
+const TILES_FIELD_SIZE: u32 = 2;
 const TILE_ENTRY_INDEX: u32 = 1;
 const TILE_ENTRY_REFERENCE: u32 = 2;
 /// An object reference message stores the referenced identifier in field 1.
 const REFERENCE_FIELD_ID: u32 = 1;
+/// Rows per tile when the `TileStorage` does not state its tile size. Numbers
+/// uses 256-row tiles; a table taller than that is split across several.
+const DEFAULT_TILE_SIZE: u32 = 256;
 
 /// A decoded Numbers table model: its name and grid geometry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +49,8 @@ pub struct TableModel {
     header_row_count: u32,
     header_column_count: u32,
     tile_ids: Vec<u64>,
+    /// Absolute starting row of each tile in `tile_ids` (tile index × tile size).
+    tile_row_offsets: Vec<u32>,
     string_data_list_id: Option<u64>,
 }
 
@@ -84,6 +91,7 @@ impl TableModel {
             .field(FIELD_DATA_STORE)
             .and_then(|field| field.value.as_bytes())
             .and_then(|bytes| ProtoMessage::decode(bytes).ok());
+        let tiles = data_store.as_ref().map(decode_tiles).unwrap_or_default();
 
         Some(Self {
             id,
@@ -93,7 +101,8 @@ impl TableModel {
             column_count: count_field(FIELD_COLUMN_COUNT),
             header_row_count: count_field(FIELD_HEADER_ROWS),
             header_column_count: count_field(FIELD_HEADER_COLUMNS),
-            tile_ids: data_store.as_ref().map(decode_tile_ids).unwrap_or_default(),
+            tile_ids: tiles.iter().map(|(_, id)| *id).collect(),
+            tile_row_offsets: tiles.iter().map(|(offset, _)| *offset).collect(),
             string_data_list_id: data_store.as_ref().and_then(decode_string_data_list_id),
         })
     }
@@ -145,6 +154,13 @@ impl TableModel {
         &self.tile_ids
     }
 
+    /// Absolute starting row of each tile in [`TableModel::tile_ids`] (parallel
+    /// slice). Adding a tile's offset to a within-tile row index yields the row's
+    /// absolute position, which matters once a table spans more than one tile.
+    pub(crate) fn tile_row_offsets(&self) -> &[u32] {
+        &self.tile_row_offsets
+    }
+
     /// Identifier of the `DataList` object that resolves this table's string
     /// cells. Scoping string lookups to this list keeps per-table string keys
     /// from colliding across tables.
@@ -153,8 +169,10 @@ impl TableModel {
     }
 }
 
-/// Extracts the table's tile identifiers from a `DataStore`, in tile-index order.
-fn decode_tile_ids(data_store: &ProtoMessage) -> Vec<u64> {
+/// Extracts the table's tiles from a `DataStore` as `(row_offset, tile_id)` pairs
+/// in tile order, where `row_offset` is the tile's absolute starting row in the
+/// table grid (tile index × tile size).
+fn decode_tiles(data_store: &ProtoMessage) -> Vec<(u32, u64)> {
     let Some(tile_storage) = data_store
         .field(STORE_FIELD_TILES)
         .and_then(|field| field.value.as_bytes())
@@ -163,7 +181,14 @@ fn decode_tile_ids(data_store: &ProtoMessage) -> Vec<u64> {
         return Vec::new();
     };
 
-    let mut tiles: Vec<(u64, u64)> = tile_storage
+    let tile_size = tile_storage
+        .field(TILES_FIELD_SIZE)
+        .and_then(|field| field.value.as_varint())
+        .and_then(|size| u32::try_from(size).ok())
+        .filter(|size| *size > 0)
+        .unwrap_or(DEFAULT_TILE_SIZE);
+
+    let mut tiles: Vec<(u32, u32, u64)> = tile_storage
         .fields_by_number(TILES_FIELD_ENTRIES)
         .filter_map(|entry| {
             let entry = entry
@@ -173,6 +198,7 @@ fn decode_tile_ids(data_store: &ProtoMessage) -> Vec<u64> {
             let index = entry
                 .field(TILE_ENTRY_INDEX)
                 .and_then(|field| field.value.as_varint())
+                .and_then(|index| u32::try_from(index).ok())
                 .unwrap_or(0);
             let tile_id = entry
                 .field(TILE_ENTRY_REFERENCE)
@@ -183,12 +209,15 @@ fn decode_tile_ids(data_store: &ProtoMessage) -> Vec<u64> {
                         .field(REFERENCE_FIELD_ID)
                         .and_then(|field| field.value.as_varint())
                 })?;
-            Some((index, tile_id))
+            Some((index, index.saturating_mul(tile_size), tile_id))
         })
         .collect();
 
-    tiles.sort_by_key(|(index, _)| *index);
-    tiles.into_iter().map(|(_, tile_id)| tile_id).collect()
+    tiles.sort_by_key(|(index, _, _)| *index);
+    tiles
+        .into_iter()
+        .map(|(_, row_offset, tile_id)| (row_offset, tile_id))
+        .collect()
 }
 
 /// Extracts the cell-string `DataList` identifier from a `DataStore`.
