@@ -111,10 +111,15 @@ impl Spreadsheet {
             .map(decode_string_datalist)
             .unwrap_or_default();
 
+        // Tiles span 256-row bands; each tile's rows carry a within-tile index, so
+        // offset them by the tile's absolute starting row before merging.
         let mut rows = Vec::new();
-        for tile_id in model.tile_ids() {
+        for (tile_id, row_offset) in model.tile_ids().iter().zip(model.tile_row_offsets()) {
             if let Some(tile) = self.archive_by_root(*tile_id) {
-                rows.extend(Table::from_tile(tile, &strings).into_rows());
+                for mut row in Table::from_tile(tile, &strings).into_rows() {
+                    row.index = u64::from(*row_offset).saturating_add(row.index);
+                    rows.push(row);
+                }
             }
         }
         Table::from_rows(rows)

@@ -307,7 +307,13 @@ storage objects:
 
 - Field 3: `TileStorage` — field 1 is the repeated tile list; each entry is
   `{ field 1: tile index, field 2: { field 1: Tile object id } }`, and field 2
-  is the tile size (rows per tile, 256). Tiles are ordered by index.
+  is the tile size (rows per tile, 256). A table taller than the tile size is
+  split across several tiles. The entry's field 1 is an **ordinal** (0, 1, 2…),
+  not a starting row, so tile `i` covers absolute rows `[i × tile_size, …]`.
+  Each tile row carries a *within-tile* index (0…tile_size−1); the reader adds
+  `i × tile_size` to recover the absolute row position. Validated against
+  `attendance.numbers`, which spans three tiles (620 rows): the decoded indices
+  run 0…619 with no per-tile reset.
 - Field 4: reference (`{ field 1: DataList object id }`) to the table's
   cell-string `DataList`. Validated across every fixture: this list's entries
   are the table's text cells (e.g. "Date", "Groceries"), distinct from the

@@ -4,6 +4,7 @@ use crate::{
 };
 
 const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
+const ATTENDANCE_EXAMPLE: &str = "examples/numbers/attendance.numbers";
 const MODERN_NOVEL_EXAMPLE: &str = "examples/pages/modern_novel.pages";
 const BASIC_WHITE_EXAMPLE: &str = "examples/keynote/basic_white.key";
 const DEFLATED_ZIP_ENTRY: &[u8] = &[
@@ -587,6 +588,43 @@ fn decoded_tables_link_cells_to_models_and_scope_strings() -> Result<(), Error> 
         !summary.iter().any(|text| text == "Groceries"),
         "Summary must not borrow the Transactions string pool"
     );
+
+    Ok(())
+}
+
+#[test]
+fn multi_tile_table_merges_rows_with_absolute_indices() -> Result<(), Error> {
+    // The attendance table is tall enough to span more than one 256-row tile,
+    // exercising the merge that single-tile fixtures cannot.
+    let spreadsheet = numbers::Document::open(ATTENDANCE_EXAMPLE)?.spreadsheet()?;
+    let (model, table) = spreadsheet
+        .decoded_tables()
+        .into_iter()
+        .find(|(model, _)| model.name() == Some("Attendance"))
+        .ok_or(Error::InvalidIwa("missing Attendance table"))?;
+
+    assert!(
+        model.tile_ids().len() >= 2,
+        "fixture must span multiple tiles to test the merge (tiles: {})",
+        model.tile_ids().len()
+    );
+    assert!(
+        model.row_count() > 256,
+        "fixture must exceed one tile's worth of rows"
+    );
+
+    let indices: Vec<u64> = table.rows().iter().map(|row| row.index).collect();
+    assert_eq!(
+        u32::try_from(indices.len()).unwrap_or(0),
+        model.row_count(),
+        "every declared row should decode"
+    );
+    // Rows must be absolute and contiguous across tile boundaries — the old bug
+    // reset each tile's indices to 0, so 256 would be missing and 0 would repeat.
+    for (position, index) in indices.iter().enumerate() {
+        let expected = u64::try_from(position).unwrap_or(u64::MAX);
+        assert_eq!(*index, expected, "row {position} index reset (per-tile bug)");
+    }
 
     Ok(())
 }
