@@ -26,6 +26,11 @@ fn main() -> Result<(), iwork::Error> {
                     CellValue::Error => "<error>".to_owned(),
                     CellValue::Text(value) => value.clone(),
                     CellValue::Number(value) => format!("{value}"),
+                    CellValue::Percentage(value) => format!("{:.1}%", value * 100.0),
+                    CellValue::Currency { value, code } => {
+                        let sym = code.as_deref().unwrap_or("?");
+                        format!("{sym} {value}")
+                    }
                     CellValue::Date(value) => format!("date:{value}"),
                 })
                 .collect::<Vec<_>>();

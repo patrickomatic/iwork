@@ -10,14 +10,15 @@ pub struct Table {
 }
 
 impl Table {
-    /// Parse all rows from a tile archive, resolving string and rich-text cells
-    /// against their respective `DataList` string maps.
+    /// Parse all rows from a tile archive, resolving string, rich-text, and
+    /// formatted (currency / percentage) cells against their respective DataList maps.
     pub(crate) fn from_tile(
         tile: &IwaArchive,
         strings: &HashMap<u32, String>,
         rich_texts: &HashMap<u32, String>,
+        formats: &HashMap<u32, CellFormat>,
     ) -> Self {
-        let rows = decode_rows(tile, strings, rich_texts);
+        let rows = decode_rows(tile, strings, rich_texts, formats);
         Self { rows }
     }
 
@@ -49,6 +50,9 @@ pub enum CellValue {
     Empty,
     /// A checkbox / boolean cell (Numbers cell type 6).
     Bool(bool),
+    /// A monetary value with an optional ISO 4217 currency code (e.g. `"USD"`).
+    /// The `value` is the raw amount (e.g. `1234.0` for `$1,234.00`).
+    Currency { value: f64, code: Option<String> },
     /// Seconds since the Cocoa epoch (January 1, 2001 UTC).
     Date(f64),
     /// A span of time, in seconds (Numbers cell type 7).
@@ -57,6 +61,8 @@ pub enum CellValue {
     /// cell carries no recoverable value, only the error state.
     Error,
     Number(f64),
+    /// A percentage value stored as a decimal fraction (e.g. `0.33` for `33%`).
+    Percentage(f64),
     Text(String),
 }
 
@@ -88,6 +94,24 @@ impl CellValue {
         }
     }
 
+    /// Returns the amount for currency cells (the raw `f64`, not formatted with symbol).
+    pub fn as_currency(&self) -> Option<f64> {
+        if let Self::Currency { value, .. } = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the decimal fraction for percentage cells (e.g. `0.33` for 33%).
+    pub fn as_percentage(&self) -> Option<f64> {
+        if let Self::Percentage(p) = self {
+            Some(*p)
+        } else {
+            None
+        }
+    }
+
     /// Returns the numeric value for number cells.
     pub fn as_number(&self) -> Option<f64> {
         if let Self::Number(n) = self {
@@ -105,6 +129,74 @@ impl CellValue {
             None
         }
     }
+}
+
+/// Format kind values found in the cell format `DataList` (field 6 → field 1 of each entry).
+const FORMAT_KIND_CURRENCY: u64 = 257;
+const FORMAT_KIND_PERCENTAGE: u64 = 258;
+
+/// Decoded cell format from the format `DataList` (DataStore field 22).
+#[derive(Debug, Clone)]
+pub(crate) enum CellFormat {
+    Currency { code: Option<String> },
+    Percentage,
+    Other,
+}
+
+/// Parse a cell-format `DataList` archive into a key → `CellFormat` map.
+///
+/// Each entry has `{field 1: key, field 6: {field 1: format_kind, field 3: currency_code}}`.
+/// Only `format_kind` 257 (currency) and 258 (percentage) produce typed variants;
+/// everything else maps to [`CellFormat::Other`].
+pub(crate) fn decode_cell_format_datalist(archive: &IwaArchive) -> HashMap<u32, CellFormat> {
+    let body = archive.body();
+    let mut cursor = archive.leading_object_references_len();
+    let mut map = HashMap::new();
+
+    while cursor < body.len() {
+        let Ok(tag) = read_varint(body, &mut cursor) else { break };
+        let wire_type = tag & 0x07;
+        if wire_type != 2 {
+            match wire_type {
+                0 => { let _ = read_varint(body, &mut cursor); }
+                1 => { cursor = cursor.saturating_add(8); }
+                5 => { cursor = cursor.saturating_add(4); }
+                _ => break,
+            }
+            continue;
+        }
+        let Ok(lv) = read_varint(body, &mut cursor) else { break };
+        let Ok(len) = usize::try_from(lv) else { break };
+        let Some(chunk) = body.get(cursor..cursor + len) else { break };
+        cursor += len;
+        let Ok(entry) = crate::protobuf::ProtoMessage::decode(chunk) else { continue };
+        let Some(key_v) = entry.field(1).and_then(|f| f.value.as_varint()) else { continue };
+        let Ok(key) = u32::try_from(key_v) else { continue };
+
+        let format = entry
+            .field(6)
+            .and_then(|f| f.value.as_bytes())
+            .and_then(|b| crate::protobuf::ProtoMessage::decode(b).ok())
+            .map(|fmt| {
+                let kind = fmt.field(1).and_then(|f| f.value.as_varint()).unwrap_or(0);
+                match kind {
+                    FORMAT_KIND_CURRENCY => {
+                        let code = fmt
+                            .field(3)
+                            .and_then(|f| f.value.as_bytes())
+                            .and_then(|b| std::str::from_utf8(b).ok())
+                            .map(str::to_owned);
+                        CellFormat::Currency { code }
+                    }
+                    FORMAT_KIND_PERCENTAGE => CellFormat::Percentage,
+                    _ => CellFormat::Other,
+                }
+            })
+            .unwrap_or(CellFormat::Other);
+
+        map.insert(key, format);
+    }
+    map
 }
 
 /// Rich-text field 9 in a `DataList` entry: contains a reference to a type-`6218` object.
@@ -240,6 +332,7 @@ fn decode_rows(
     tile: &IwaArchive,
     strings: &HashMap<u32, String>,
     rich_texts: &HashMap<u32, String>,
+    formats: &HashMap<u32, CellFormat>,
 ) -> Vec<TableRow> {
     let body = tile.body();
     let mut cursor = tile.leading_object_references_len();
@@ -281,7 +374,7 @@ fn decode_rows(
         }
 
         let row_index = msg.field(1).and_then(|f| f.value.as_varint()).unwrap_or(0);
-        let cells = decode_cells(&msg, strings, rich_texts);
+        let cells = decode_cells(&msg, strings, rich_texts, formats);
         rows.push(TableRow {
             index: row_index,
             cells,
@@ -325,6 +418,7 @@ fn decode_cells(
     msg: &crate::protobuf::ProtoMessage,
     strings: &HashMap<u32, String>,
     rich_texts: &HashMap<u32, String>,
+    formats: &HashMap<u32, CellFormat>,
 ) -> Vec<CellValue> {
     let f6 = msg.field(6).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
     let f7 = msg.field(7).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
@@ -353,7 +447,7 @@ fn decode_cells(
             }
             f6.get(off as usize..)
                 .map_or(CellValue::Empty, |rec| {
-                    decode_cell_record(rec, strings, rich_texts)
+                    decode_cell_record(rec, strings, rich_texts, formats)
                 })
         })
         .collect()
@@ -366,10 +460,18 @@ fn decode_cells(
 /// tells them apart. The flags still locate the value within the trailing field
 /// region — for numbers they distinguish a 16-byte decimal128 (`0x1`) from an
 /// 8-byte IEEE double (`0x2`).
+/// Flag-bit mask for the cell style key (first trailing u32 after the value).
+const FLAG_CELL_STYLE: u32 = 0x1000;
+/// Flag-bit mask for the numfmt key (second trailing u32 after the value).
+/// Bits 13, 14, and 16 are each used by different cell types but all place
+/// a single numfmt key at the same position in the trailing region.
+const FLAG_NUMFMT: u32 = 0x2000 | 0x4000 | 0x0001_0000;
+
 fn decode_cell_record(
     rec: &[u8],
     strings: &HashMap<u32, String>,
     rich_texts: &HashMap<u32, String>,
+    formats: &HashMap<u32, CellFormat>,
 ) -> CellValue {
     if rec.len() < 12 || rec[0] != WIDE_CELL_VERSION {
         return CellValue::Empty;
@@ -380,12 +482,35 @@ fn decode_cell_record(
 
     match cell_type {
         CELL_TYPE_NUMBER | CELL_TYPE_NUMBER_ALT => {
-            if flags & 0x1 != 0 {
-                body.get(..16).map(decode_decimal128)
+            let (value, value_len) = if flags & 0x1 != 0 {
+                (body.get(..16).map(decode_decimal128), 16)
             } else {
-                read_f64(body)
+                (read_f64(body), 8)
+            };
+            let Some(v) = value else {
+                return CellValue::Empty;
+            };
+            // Trailing u32s: cell_style_key (bit 12), then numfmt_key (bits 13/14/16).
+            let after_value = &body[value_len.min(body.len())..];
+            let numfmt_key = if flags & FLAG_CELL_STYLE != 0 && flags & FLAG_NUMFMT != 0 {
+                after_value
+                    .get(4..8)
+                    .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            } else if flags & FLAG_NUMFMT != 0 {
+                after_value
+                    .get(..4)
+                    .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            } else {
+                None
+            };
+            match numfmt_key.and_then(|k| formats.get(&k)) {
+                Some(CellFormat::Percentage) => CellValue::Percentage(v),
+                Some(CellFormat::Currency { code }) => CellValue::Currency {
+                    value: v,
+                    code: code.clone(),
+                },
+                _ => CellValue::Number(v),
             }
-            .map_or(CellValue::Empty, CellValue::Number)
         }
         CELL_TYPE_BOOL => read_f64(body).map_or(CellValue::Empty, |v| CellValue::Bool(v != 0.0)),
         CELL_TYPE_DATE => read_f64(body).map_or(CellValue::Empty, CellValue::Date),
@@ -442,41 +567,41 @@ mod tests {
         strings.insert(7, "Utilities".to_owned());
         let empty_rich: HashMap<u32, String> = HashMap::new();
 
-        let number = decode_cell_record(&double_record(CELL_TYPE_NUMBER, 0x2, 42.5), &strings, &empty_rich);
+        let number = decode_cell_record(&double_record(CELL_TYPE_NUMBER, 0x2, 42.5), &strings, &empty_rich, &HashMap::new());
         assert_eq!(number, CellValue::Number(42.5));
 
         let decimal =
-            decode_cell_record(&decimal_record(CELL_TYPE_NUMBER, 1234), &strings, &empty_rich);
+            decode_cell_record(&decimal_record(CELL_TYPE_NUMBER, 1234), &strings, &empty_rich, &HashMap::new());
         assert_eq!(decimal, CellValue::Number(1234.0));
 
         let date_seconds = 625_881_600.0_f64;
-        let date = decode_cell_record(&double_record(CELL_TYPE_DATE, 0x4, date_seconds), &strings, &empty_rich);
+        let date = decode_cell_record(&double_record(CELL_TYPE_DATE, 0x4, date_seconds), &strings, &empty_rich, &HashMap::new());
         assert_eq!(date, CellValue::Date(date_seconds));
 
-        let bool_true = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 1.0), &strings, &empty_rich);
+        let bool_true = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 1.0), &strings, &empty_rich, &HashMap::new());
         assert_eq!(bool_true, CellValue::Bool(true));
-        let bool_false = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 0.0), &strings, &empty_rich);
+        let bool_false = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 0.0), &strings, &empty_rich, &HashMap::new());
         assert_eq!(bool_false, CellValue::Bool(false));
 
         // 2h30m == 9000s, stored as an 8-byte double like a bool.
-        let duration = decode_cell_record(&double_record(CELL_TYPE_DURATION, 0x2, 9000.0), &strings, &empty_rich);
+        let duration = decode_cell_record(&double_record(CELL_TYPE_DURATION, 0x2, 9000.0), &strings, &empty_rich, &HashMap::new());
         assert_eq!(duration, CellValue::Duration(9000.0));
 
         // Error cells carry no value field, just the type byte.
-        let error = decode_cell_record(&double_record_bytes(CELL_TYPE_ERROR, 0x800, &[1, 0, 0, 0]), &strings, &empty_rich);
+        let error = decode_cell_record(&double_record_bytes(CELL_TYPE_ERROR, 0x800, &[1, 0, 0, 0]), &strings, &empty_rich, &HashMap::new());
         assert_eq!(error, CellValue::Error);
 
         // Rich text (type 9) resolves through the 6218→2001 chain.
         let mut rich_map: HashMap<u32, String> = HashMap::new();
         rich_map.insert(1, "hello rich".to_owned());
-        let rich = decode_cell_record(&text_record_typed(CELL_TYPE_RICH_TEXT, 1), &strings, &rich_map);
+        let rich = decode_cell_record(&text_record_typed(CELL_TYPE_RICH_TEXT, 1), &strings, &rich_map, &HashMap::new());
         assert_eq!(rich, CellValue::Text("hello rich".to_owned()));
 
         // Rich text key not in map → Empty.
-        let rich_miss = decode_cell_record(&text_record_typed(CELL_TYPE_RICH_TEXT, 99), &strings, &rich_map);
+        let rich_miss = decode_cell_record(&text_record_typed(CELL_TYPE_RICH_TEXT, 99), &strings, &rich_map, &HashMap::new());
         assert_eq!(rich_miss, CellValue::Empty);
 
-        let text = decode_cell_record(&text_record(7), &strings, &empty_rich);
+        let text = decode_cell_record(&text_record(7), &strings, &empty_rich, &HashMap::new());
         assert_eq!(text, CellValue::Text("Utilities".to_owned()));
     }
 
@@ -485,17 +610,17 @@ mod tests {
         let strings = HashMap::new();
         let rich: HashMap<u32, String> = HashMap::new();
 
-        assert_eq!(decode_cell_record(&[], &strings, &rich), CellValue::Empty);
+        assert_eq!(decode_cell_record(&[], &strings, &rich, &HashMap::new()), CellValue::Empty);
         // Right version but an unrecognized type byte.
-        assert_eq!(decode_cell_record(&[0x05; 12], &strings, &rich), CellValue::Empty);
+        assert_eq!(decode_cell_record(&[0x05; 12], &strings, &rich, &HashMap::new()), CellValue::Empty);
         // A number cell whose double payload is truncated.
         assert_eq!(
-            decode_cell_record(&double_record_bytes(CELL_TYPE_NUMBER, 0x2, &[1, 2, 3]), &strings, &rich),
+            decode_cell_record(&double_record_bytes(CELL_TYPE_NUMBER, 0x2, &[1, 2, 3]), &strings, &rich, &HashMap::new()),
             CellValue::Empty
         );
         // A text cell whose key is truncated.
         assert_eq!(
-            decode_cell_record(&double_record_bytes(CELL_TYPE_TEXT, 0x8, &3u16.to_le_bytes()), &strings, &rich),
+            decode_cell_record(&double_record_bytes(CELL_TYPE_TEXT, 0x8, &3u16.to_le_bytes()), &strings, &rich, &HashMap::new()),
             CellValue::Empty
         );
     }
@@ -520,7 +645,7 @@ mod tests {
         let empty_rich: HashMap<u32, String> = HashMap::new();
         let msg = row_message(Some(2), &storage, &[0, 20, 40]);
         assert_eq!(
-            decode_cells(&msg, &strings, &empty_rich),
+            decode_cells(&msg, &strings, &empty_rich, &HashMap::new()),
             vec![
                 CellValue::Number(10.0),
                 CellValue::Text("Groceries".to_owned()),
@@ -532,7 +657,7 @@ mod tests {
         // after it is included because it is the last non-sentinel.
         let msg2 = row_message(None, &storage, &[0, 20, 0xffff, 40]);
         assert_eq!(
-            decode_cells(&msg2, &strings, &empty_rich),
+            decode_cells(&msg2, &strings, &empty_rich, &HashMap::new()),
             vec![
                 CellValue::Number(10.0),
                 CellValue::Text("Groceries".to_owned()),

@@ -557,7 +557,8 @@ fn legacy_column_record(column: usize, offset: u16, cell: &CellValue) -> Result<
     record[2..4].copy_from_slice(&offset.to_le_bytes());
     record[4] = match cell {
         CellValue::Empty | CellValue::Error => 0,
-        CellValue::Number(_) | CellValue::Bool(_) | CellValue::Duration(_) => 2,
+        CellValue::Number(_) | CellValue::Bool(_) | CellValue::Duration(_)
+        | CellValue::Percentage(_) | CellValue::Currency { .. } => 2,
         CellValue::Date(_) => 4,
         CellValue::Text(_) => 8,
     };
@@ -573,6 +574,8 @@ fn encode_cell_record(cell: &CellValue, strings: &BTreeMap<String, u32>) -> Resu
         CellValue::Bool(value) => (6u8, 0x2u32, f64::from(u8::from(*value)).to_le_bytes().to_vec()),
         CellValue::Date(value) => (5u8, 0x4u32, value.to_le_bytes().to_vec()),
         CellValue::Duration(value) => (7u8, 0x2u32, value.to_le_bytes().to_vec()),
+        CellValue::Percentage(value) => (2u8, 0x2u32, value.to_le_bytes().to_vec()),
+        CellValue::Currency { value, .. } => (2u8, 0x2u32, value.to_le_bytes().to_vec()),
         // An error cell has no value field; the type byte alone round-trips it.
         CellValue::Error => (8u8, 0x0u32, Vec::new()),
         CellValue::Text(value) => {
@@ -637,7 +640,7 @@ mod tests {
             first_row.field(7).and_then(|f| f.value.as_bytes())
         );
 
-        let decoded = Table::from_tile(&tile_archive, &strings, &std::collections::HashMap::new());
+        let decoded = Table::from_tile(&tile_archive, &strings, &std::collections::HashMap::new(), &std::collections::HashMap::new());
         assert_eq!(decoded.rows().len(), 2);
         assert_eq!(
             decoded.rows()[1].cells,
