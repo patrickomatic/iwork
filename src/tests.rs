@@ -539,6 +539,28 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         .any(|c| matches!(c, CellValue::Text(s) if s.contains("rich text")));
     assert!(has_rich, "expected a rich-text cell containing 'rich text'");
 
+    // Currency cell: decoded as CellValue::Currency with "USD" code.
+    let currency = cells.iter().find_map(|c| {
+        if let CellValue::Currency { value, code } = c {
+            Some((*value, code.clone()))
+        } else {
+            None
+        }
+    });
+    let (cur_val, cur_code) = currency.expect("expected a currency cell");
+    assert!(
+        cur_val.is_finite(),
+        "currency value should be a finite number, got {cur_val}"
+    );
+    assert_eq!(cur_code.as_deref(), Some("USD"), "expected USD currency code");
+
+    // Percentage cell: decoded as CellValue::Percentage with decimal fraction.
+    let pct = cells.iter().find_map(|c| c.as_percentage());
+    assert!(
+        pct.is_some_and(|p| (p - 0.33).abs() < 0.01),
+        "expected a percentage cell ~0.33, got {pct:?}"
+    );
+
     Ok(())
 }
 

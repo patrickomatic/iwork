@@ -32,6 +32,11 @@ const STORE_FIELD_STRINGS: u32 = 4;
 /// the plain UTF-8 string. All three objects (`DataList`, `6218`, `2001`) are
 /// co-resident in the same `.iwa` archive file.
 const STORE_FIELD_RICH_TEXT: u32 = 17;
+/// `DataStore.field 22` references the `DataList` of cell format descriptors.
+/// Each entry has key → `{field 6: {field 1: format_kind, field 3: currency_code}}`.
+/// Validated: `format_kind` 257 = currency, 258 = percentage, 260 = auto-number,
+/// 268 = duration; the currency entry also carries an ISO 4217 code in field 3.
+const STORE_FIELD_FORMATS: u32 = 22;
 /// `TileStorage.field 1` is the repeated list of `(tile index, tile reference)`.
 const TILES_FIELD_ENTRIES: u32 = 1;
 /// `TileStorage.field 2` is the tile size: the number of rows each tile spans.
@@ -59,6 +64,7 @@ pub struct TableModel {
     tile_row_offsets: Vec<u32>,
     string_data_list_id: Option<u64>,
     rich_text_data_list_id: Option<u64>,
+    cell_format_data_list_id: Option<u64>,
 }
 
 impl TableModel {
@@ -114,6 +120,9 @@ impl TableModel {
             rich_text_data_list_id: data_store
                 .as_ref()
                 .and_then(|ds| decode_data_list_id(ds, STORE_FIELD_RICH_TEXT)),
+            cell_format_data_list_id: data_store
+                .as_ref()
+                .and_then(|ds| decode_data_list_id(ds, STORE_FIELD_FORMATS)),
         })
     }
 
@@ -183,6 +192,13 @@ impl TableModel {
     /// needed to extract the plain string; see [`decode_rich_text_datalist`].
     pub(crate) fn rich_text_data_list_id(&self) -> Option<u64> {
         self.rich_text_data_list_id
+    }
+
+    /// Identifier of the `DataList` object that maps format keys to cell format
+    /// descriptors (currency code, percentage flag, etc.). Each entry's field 6
+    /// holds `{field 1: format_kind, field 3: currency_code}`.
+    pub(crate) fn cell_format_data_list_id(&self) -> Option<u64> {
+        self.cell_format_data_list_id
     }
 }
 
