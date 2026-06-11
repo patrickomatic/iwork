@@ -556,8 +556,8 @@ fn legacy_column_record(column: usize, offset: u16, cell: &CellValue) -> Result<
     record[0..2].copy_from_slice(&column.to_le_bytes());
     record[2..4].copy_from_slice(&offset.to_le_bytes());
     record[4] = match cell {
-        CellValue::Empty => 0,
-        CellValue::Number(_) => 2,
+        CellValue::Empty | CellValue::Error => 0,
+        CellValue::Number(_) | CellValue::Bool(_) | CellValue::Duration(_) => 2,
         CellValue::Date(_) => 4,
         CellValue::Text(_) => 8,
     };
@@ -565,19 +565,25 @@ fn legacy_column_record(column: usize, offset: u16, cell: &CellValue) -> Result<
 }
 
 fn encode_cell_record(cell: &CellValue, strings: &BTreeMap<String, u32>) -> Result<Vec<u8>, Error> {
-    let (flags, payload) = match cell {
+    // Each arm is (wide-cell type byte, value flag, value bytes). The type byte at
+    // record[1] is what the reader keys off; the flag locates the value at byte 12.
+    let (cell_type, flags, payload) = match cell {
         CellValue::Empty => return Ok(Vec::new()),
-        CellValue::Number(value) => (0x2u32, value.to_le_bytes().to_vec()),
-        CellValue::Date(value) => (0x4u32, value.to_le_bytes().to_vec()),
+        CellValue::Number(value) => (2u8, 0x2u32, value.to_le_bytes().to_vec()),
+        CellValue::Bool(value) => (6u8, 0x2u32, f64::from(u8::from(*value)).to_le_bytes().to_vec()),
+        CellValue::Date(value) => (5u8, 0x4u32, value.to_le_bytes().to_vec()),
+        CellValue::Duration(value) => (7u8, 0x2u32, value.to_le_bytes().to_vec()),
+        // An error cell has no value field; the type byte alone round-trips it.
+        CellValue::Error => (8u8, 0x0u32, Vec::new()),
         CellValue::Text(value) => {
             let key = strings
                 .get(value)
                 .ok_or(Error::InvalidIwa("missing string datalist key"))?;
-            (0x8u32, key.to_le_bytes().to_vec())
+            (3u8, 0x8u32, key.to_le_bytes().to_vec())
         }
     };
 
-    let mut record = vec![0x05, 0, 0, 0, 0, 0, 0, 0];
+    let mut record = vec![0x05, cell_type, 0, 0, 0, 0, 0, 0];
     record.extend_from_slice(&flags.to_le_bytes());
     record.extend_from_slice(&payload);
     Ok(record)

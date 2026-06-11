@@ -21,6 +21,9 @@ fn main() -> Result<(), iwork::Error> {
                 .iter()
                 .map(|cell| match cell {
                     CellValue::Empty => "<empty>".to_owned(),
+                    CellValue::Bool(value) => format!("bool:{value}"),
+                    CellValue::Duration(value) => format!("dur:{value}s"),
+                    CellValue::Error => "<error>".to_owned(),
                     CellValue::Text(value) => value.clone(),
                     CellValue::Number(value) => format!("{value}"),
                     CellValue::Date(value) => format!("date:{value}"),
