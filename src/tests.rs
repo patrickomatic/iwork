@@ -533,6 +533,12 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         "2h30m should decode to ~9000s, got {duration:?}"
     );
 
+    // Rich-text cell (type 9): resolved through DataList → 6218 → 2001 chain.
+    let has_rich = cells
+        .iter()
+        .any(|c| matches!(c, CellValue::Text(s) if s.contains("rich text")));
+    assert!(has_rich, "expected a rich-text cell containing 'rich text'");
+
     Ok(())
 }
 
