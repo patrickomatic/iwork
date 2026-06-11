@@ -367,16 +367,22 @@ Record header *(structurally grounded — verified across multiple real tile arc
 | 8-11    | flags bitmask (u32 LE) |
 | 12+     | optional value fields, present in flag-bit order |
 
-The low flag bits select the value field that follows at byte 12 (each consumes a fixed width, in bit order):
+**The type byte (offset 1) selects the value kind.** The flag bits cannot do this alone: booleans and numbers both store an 8-byte double, so the type byte is what tells them apart. The following type bytes are *structurally grounded* — each was observed with a consistent value encoding across the fixtures (counts in parentheses are total cells seen):
 
-| Flag bit | Field | Width | Decoded as |
-|----------|-------|-------|------------|
-| `0x1`    | decimal128 number | 16 | `Number` |
-| `0x2`    | IEEE 754 double   | 8  | `Number` |
-| `0x4`    | date (seconds since Cocoa epoch) | 8 | `Date` |
-| `0x8`    | string `DataList` key (u32 LE) | 4 | `Text` |
+| Type | Meaning | Value encoding | Decoded as | Evidence |
+|------|---------|----------------|------------|----------|
+| `0`  | empty | — | `Empty` | — |
+| `2`  | number | decimal128 (flag `0x1`) or double (flag `0x2`) | `Number` | numeric columns, all fixtures |
+| `3`  | text | u32 string-`DataList` key (flag `0x8`) | `Text` | text columns, all fixtures |
+| `5`  | date | 8-byte double, Cocoa-epoch seconds (flag `0x4`) | `Date` | date columns |
+| `6`  | boolean | 8-byte double `0.0`/`1.0` (flag `0x2`) | `Bool` | `attendance` checkboxes (4944) |
+| `10` | formula number | decimal128 (flag `0x1`), like type `2` | `Number` | computed columns (`my_stocks`, `personal_budget`) |
 
-Higher bits (formula id, style ids, number-format id, …) follow but are not needed to recover the value, since the value fields are the lowest four bits and therefore appear first. The cell type byte (offset 1) is *not* used for value typing — the flags are authoritative.
+The flag bits still locate the value within the trailing field region. The value-bearing bits (`0x1` decimal128, `0x2` double, `0x4` date, `0x8` string key) occupy the low nibble and precede any format/style/formula references, so the selected value always begins at byte 12. Higher bits (formula id, style ids, number-format id, …) follow but are not needed to recover the value.
+
+Type `10` is decoded as its numeric result; whether it *always* coincides with a formula reference has not been cross-validated against the formula store yet. Cell types not in the table above (duration, error, rich text) do not appear in any current fixture, so their type-byte values are not asserted — confirming them needs a crafted fixture. (A `ver=0x00` "record" only appears when offsets are misread inside the pivot table's special storage; the `rec[0] != 0x05` gate rejects it.)
+
+Use `cargo run --example dump_cells -- <file> [--limit N]` to dump per-cell `type`/`flags`/payload and the type-byte→flag-mask summary; this is how the table above was derived.
 
 **Decimal128.** Numbers stores numeric values as IEEE 754-2008 decimal128 (16 bytes, little-endian). The two high bytes hold the sign bit and biased exponent; bytes 0-13 plus the low bit of byte 14 form the coefficient. `decode_decimal128` converts to `f64`: `coefficient × 10^(exp)` where `exp = (((b[15] & 0x7f) << 7) | (b[14] >> 1)) - 0x1820` and the sign comes from `b[15] & 0x80`. This mirrors the well-known `numbers-parser` decode.
 

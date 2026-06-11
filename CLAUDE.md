@@ -72,6 +72,7 @@ Do format investigation with the committed tools, **not throwaway scripts**. `pr
 - `cargo run --example inspect_numbers -- <file> [name-filter]` — per-object protobuf dump via `protorev::dump_message`.
 - `cargo run --example iwa_corpus -- {schema|infer|explain|values|diff} <type> [<field.path>] <file>...` — runs `protorev`'s full feature set over every object of one message type (`<type>` is an iWork message-type id; `<field.path>` is a dotted path like `4.3`).
 - `cargo run --example iwa_refs -- {types|edges|refs} ... <file>...` — cross-object reference graph (object-graph level; not something `protorev` covers).
+- `cargo run --example dump_cells -- <file> [--limit N]` — wide-cell record dump (type byte / flags / payload) for table tiles, plus a type-byte→flag-mask summary. Interprets the opaque field-6 cell buffer, which `protorev` cannot see into; protobuf framing is still delegated to `ProtoMessage`.
 
 Boundaries: `protorev` is a `[dev-dependencies]` of `iwork`, used only by examples — the library never depends on it. `src/protobuf.rs` remains the production decoder. `protorev` is maintained on its own; don't refactor its source or README as part of `iwork` work unless asked.
 

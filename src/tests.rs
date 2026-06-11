@@ -503,6 +503,40 @@ fn numbers_table_parses_mixed_scalar_cells() -> Result<(), Error> {
 }
 
 #[test]
+fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
+    use crate::numbers::CellValue;
+
+    const MORE_TYPES: &str = "examples/numbers/more_types.numbers";
+    let decoded = numbers::Document::open(MORE_TYPES)?
+        .spreadsheet()?
+        .decoded_tables();
+    let cells: Vec<&CellValue> = decoded
+        .iter()
+        .flat_map(|(_, table)| table.rows())
+        .flat_map(|row| row.cells.iter())
+        .collect();
+
+    // Boolean checkbox cells (type 6) — previously mis-decoded as numbers.
+    assert!(
+        cells.iter().any(|c| c.as_bool().is_some()),
+        "expected a checkbox / boolean cell"
+    );
+    // Error cell (type 8), e.g. =1/0.
+    assert!(
+        cells.iter().any(|c| matches!(c, CellValue::Error)),
+        "expected a formula-error cell"
+    );
+    // Duration cell (type 7): 2h30m is stored as 9000 seconds.
+    let duration = cells.iter().find_map(|c| c.as_duration_seconds());
+    assert!(
+        duration.is_some_and(|seconds| (seconds - 9000.0).abs() < 1.0),
+        "2h30m should decode to ~9000s, got {duration:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn personal_budget_preserves_multi_text_rows() -> Result<(), Error> {
     let tables = numbers::Document::open(PERSONAL_BUDGET_EXAMPLE)?
         .spreadsheet()?

@@ -7,6 +7,7 @@ const NUMBERS_EXAMPLES: &[&str] = &[
     "examples/numbers/personal_budget.numbers",
     "examples/numbers/pivot_table.numbers",
     "examples/numbers/table_and_charts.numbers",
+    "examples/numbers/more_types.numbers",
 ];
 
 const PAGES_EXAMPLES: &[&str] = &[
