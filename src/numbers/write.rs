@@ -637,7 +637,7 @@ mod tests {
             first_row.field(7).and_then(|f| f.value.as_bytes())
         );
 
-        let decoded = Table::from_tile(&tile_archive, &strings);
+        let decoded = Table::from_tile(&tile_archive, &strings, &std::collections::HashMap::new());
         assert_eq!(decoded.rows().len(), 2);
         assert_eq!(
             decoded.rows()[1].cells,

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::table::{Table, decode_string_datalist};
+use super::table::{Table, decode_rich_text_datalist, decode_string_datalist};
 use super::table_model::TableModel;
 use crate::iwa::IwaArchive;
 use crate::{Error, Package, StylesheetCatalog};
@@ -110,13 +110,18 @@ impl Spreadsheet {
             .and_then(|id| self.archive_by_root(id))
             .map(decode_string_datalist)
             .unwrap_or_default();
+        let rich_texts = model
+            .rich_text_data_list_id()
+            .and_then(|id| self.archive_by_root(id))
+            .map(decode_rich_text_datalist)
+            .unwrap_or_default();
 
         // Tiles span 256-row bands; each tile's rows carry a within-tile index, so
         // offset them by the tile's absolute starting row before merging.
         let mut rows = Vec::new();
         for (tile_id, row_offset) in model.tile_ids().iter().zip(model.tile_row_offsets()) {
             if let Some(tile) = self.archive_by_root(*tile_id) {
-                for mut row in Table::from_tile(tile, &strings).into_rows() {
+                for mut row in Table::from_tile(tile, &strings, &rich_texts).into_rows() {
                     row.index = u64::from(*row_offset).saturating_add(row.index);
                     rows.push(row);
                 }
@@ -161,10 +166,11 @@ impl Spreadsheet {
             .flat_map(|a| decode_string_datalist(&a.archive))
             .collect();
 
+        let empty_rich: HashMap<u32, String> = HashMap::new();
         self.table_archives
             .iter()
             .filter(|a| a.path.contains("Tile"))
-            .map(|a| Table::from_tile(&a.archive, &strings))
+            .map(|a| Table::from_tile(&a.archive, &strings, &empty_rich))
             .collect()
     }
 }

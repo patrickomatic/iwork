@@ -26,6 +26,12 @@ const STORE_FIELD_TILES: u32 = 3;
 /// across every fixture its entries are the table's text cells, distinct from
 /// the format store).
 const STORE_FIELD_STRINGS: u32 = 4;
+/// `DataStore.field 17` references the `DataList` of rich-text cell entries.
+/// Each entry carries a key and an object reference to a type-6218 wrapper
+/// whose field 1.1 is a type-2001 TSWP storage; field 3 of that object is
+/// the plain UTF-8 string. All three objects (`DataList`, `6218`, `2001`) are
+/// co-resident in the same `.iwa` archive file.
+const STORE_FIELD_RICH_TEXT: u32 = 17;
 /// `TileStorage.field 1` is the repeated list of `(tile index, tile reference)`.
 const TILES_FIELD_ENTRIES: u32 = 1;
 /// `TileStorage.field 2` is the tile size: the number of rows each tile spans.
@@ -52,6 +58,7 @@ pub struct TableModel {
     /// Absolute starting row of each tile in `tile_ids` (tile index × tile size).
     tile_row_offsets: Vec<u32>,
     string_data_list_id: Option<u64>,
+    rich_text_data_list_id: Option<u64>,
 }
 
 impl TableModel {
@@ -104,6 +111,9 @@ impl TableModel {
             tile_ids: tiles.iter().map(|(_, id)| *id).collect(),
             tile_row_offsets: tiles.iter().map(|(offset, _)| *offset).collect(),
             string_data_list_id: data_store.as_ref().and_then(decode_string_data_list_id),
+            rich_text_data_list_id: data_store
+                .as_ref()
+                .and_then(|ds| decode_data_list_id(ds, STORE_FIELD_RICH_TEXT)),
         })
     }
 
@@ -167,6 +177,13 @@ impl TableModel {
     pub(crate) fn string_data_list_id(&self) -> Option<u64> {
         self.string_data_list_id
     }
+
+    /// Identifier of the `DataList` object that resolves this table's rich-text
+    /// cells. The archive at this ID is co-resident with the 6218/2001 objects
+    /// needed to extract the plain string; see [`decode_rich_text_datalist`].
+    pub(crate) fn rich_text_data_list_id(&self) -> Option<u64> {
+        self.rich_text_data_list_id
+    }
 }
 
 /// Extracts the table's tiles from a `DataStore` as `(row_offset, tile_id)` pairs
@@ -222,13 +239,18 @@ fn decode_tiles(data_store: &ProtoMessage) -> Vec<(u32, u64)> {
 
 /// Extracts the cell-string `DataList` identifier from a `DataStore`.
 fn decode_string_data_list_id(data_store: &ProtoMessage) -> Option<u64> {
+    decode_data_list_id(data_store, STORE_FIELD_STRINGS)
+}
+
+/// Extracts a `DataList` object identifier from a named `DataStore` field.
+fn decode_data_list_id(data_store: &ProtoMessage, field: u32) -> Option<u64> {
     data_store
-        .field(STORE_FIELD_STRINGS)
-        .and_then(|field| field.value.as_bytes())
+        .field(field)
+        .and_then(|f| f.value.as_bytes())
         .and_then(|bytes| ProtoMessage::decode(bytes).ok())
         .and_then(|reference| {
             reference
                 .field(REFERENCE_FIELD_ID)
-                .and_then(|field| field.value.as_varint())
+                .and_then(|f| f.value.as_varint())
         })
 }

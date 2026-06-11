@@ -10,9 +10,14 @@ pub struct Table {
 }
 
 impl Table {
-    /// Parse all rows from a tile archive, resolving string cells against the provided `DataList`s.
-    pub(crate) fn from_tile(tile: &IwaArchive, strings: &HashMap<u32, String>) -> Self {
-        let rows = decode_rows(tile, strings);
+    /// Parse all rows from a tile archive, resolving string and rich-text cells
+    /// against their respective `DataList` string maps.
+    pub(crate) fn from_tile(
+        tile: &IwaArchive,
+        strings: &HashMap<u32, String>,
+        rich_texts: &HashMap<u32, String>,
+    ) -> Self {
+        let rows = decode_rows(tile, strings, rich_texts);
         Self { rows }
     }
 
@@ -102,6 +107,80 @@ impl CellValue {
     }
 }
 
+/// Rich-text field 9 in a `DataList` entry: contains a reference to a type-`6218` object.
+const RICH_TEXT_ENTRY_REF_FIELD: u32 = 9;
+
+/// Parse a rich-text `DataList` archive into a key → plain-string map.
+///
+/// Chain: `DataList` entry `{field 1: key, field 9: {field 1: 6218_id}}` →
+/// `6218` object `{field 1: {field 1: 2001_id}}` → `2001` object `{field 3: utf8}`.
+/// All three object types are co-resident in the same `.iwa` archive file.
+pub(crate) fn decode_rich_text_datalist(archive: &IwaArchive) -> HashMap<u32, String> {
+    let objects = archive.objects();
+    // Build id → payload map for secondary objects (6218 and 2001 wrappers).
+    let secondary: HashMap<u64, &[u8]> = objects
+        .iter()
+        .skip(1)
+        .filter_map(|obj| Some((obj.identifier?, obj.payload.as_slice())))
+        .collect();
+
+    // The root object is the DataList; parse its payload for entries.
+    let Some(root_payload) = objects.first().map(|o| o.payload.as_slice()) else {
+        return HashMap::new();
+    };
+    let Ok(root_msg) = crate::protobuf::ProtoMessage::decode(root_payload) else {
+        return HashMap::new();
+    };
+
+    let mut map = HashMap::new();
+    for entry_field in root_msg.fields_by_number(3) {
+        let Some(entry_bytes) = entry_field.value.as_bytes() else {
+            continue;
+        };
+        let Ok(entry) = crate::protobuf::ProtoMessage::decode(entry_bytes) else {
+            continue;
+        };
+        let Some(key_v) = entry.field(1).and_then(|f| f.value.as_varint()) else {
+            continue;
+        };
+        let Ok(key) = u32::try_from(key_v) else {
+            continue;
+        };
+        // field 9 → {field 1: 6218_object_id}
+        let Some(wrapper_id) = entry
+            .field(RICH_TEXT_ENTRY_REF_FIELD)
+            .and_then(|f| f.value.as_bytes())
+            .and_then(|b| crate::protobuf::ProtoMessage::decode(b).ok())
+            .and_then(|ref_msg| ref_msg.field(1).and_then(|f| f.value.as_varint()))
+        else {
+            continue;
+        };
+        // 6218 object: field 1 → {field 1: 2001_object_id}
+        let Some(storage_id) = secondary
+            .get(&wrapper_id)
+            .and_then(|b| crate::protobuf::ProtoMessage::decode(b).ok())
+            .as_ref()
+            .and_then(|m| m.field(1).and_then(|f| f.value.as_bytes()))
+            .and_then(|b| crate::protobuf::ProtoMessage::decode(b).ok())
+            .as_ref()
+            .and_then(|m| m.field(1).and_then(|f| f.value.as_varint()))
+        else {
+            continue;
+        };
+        // 2001 object: field 3 = UTF-8 plain text
+        if let Some(text) = secondary
+            .get(&storage_id)
+            .and_then(|b| crate::protobuf::ProtoMessage::decode(b).ok())
+            .as_ref()
+            .and_then(|m| m.field(3).and_then(|f| f.value.as_bytes()))
+            .and_then(|b| std::str::from_utf8(b).ok())
+        {
+            map.insert(key, text.to_owned());
+        }
+    }
+    map
+}
+
 /// Parse all string entries from a `DataList` archive body into a key → string map.
 pub(crate) fn decode_string_datalist(archive: &IwaArchive) -> HashMap<u32, String> {
     let mut map = HashMap::new();
@@ -157,7 +236,11 @@ pub(crate) fn decode_string_datalist(archive: &IwaArchive) -> HashMap<u32, Strin
     map
 }
 
-fn decode_rows(tile: &IwaArchive, strings: &HashMap<u32, String>) -> Vec<TableRow> {
+fn decode_rows(
+    tile: &IwaArchive,
+    strings: &HashMap<u32, String>,
+    rich_texts: &HashMap<u32, String>,
+) -> Vec<TableRow> {
     let body = tile.body();
     let mut cursor = tile.leading_object_references_len();
     let mut rows = Vec::new();
@@ -198,7 +281,7 @@ fn decode_rows(tile: &IwaArchive, strings: &HashMap<u32, String>) -> Vec<TableRo
         }
 
         let row_index = msg.field(1).and_then(|f| f.value.as_varint()).unwrap_or(0);
-        let cells = decode_cells(&msg, strings);
+        let cells = decode_cells(&msg, strings, rich_texts);
         rows.push(TableRow {
             index: row_index,
             cells,
@@ -223,6 +306,11 @@ const CELL_TYPE_ERROR: u8 = 8;
 /// is type 2, and a literal currency value is type 10). Both carry a decimal128
 /// value, so both decode to [`CellValue::Number`].
 const CELL_TYPE_NUMBER_ALT: u8 = 10;
+/// Rich-text cell (type 9): the cell record carries a u32 key (flag `0x10`)
+/// into the rich-text `DataList` referenced by `DataStore.field 17`. Each
+/// `DataList` entry chains through a `6218` wrapper object to a `2001` TSWP storage
+/// whose field 3 is the plain UTF-8 string.
+const CELL_TYPE_RICH_TEXT: u8 = 9;
 
 /// Decode a row's cells from the current (`field 6` + `field 7`) wide-cell encoding.
 ///
@@ -236,6 +324,7 @@ const CELL_TYPE_NUMBER_ALT: u8 = 10;
 fn decode_cells(
     msg: &crate::protobuf::ProtoMessage,
     strings: &HashMap<u32, String>,
+    rich_texts: &HashMap<u32, String>,
 ) -> Vec<CellValue> {
     let f6 = msg.field(6).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
     let f7 = msg.field(7).and_then(|f| f.value.as_bytes()).unwrap_or(&[]);
@@ -263,7 +352,9 @@ fn decode_cells(
                 return CellValue::Empty;
             }
             f6.get(off as usize..)
-                .map_or(CellValue::Empty, |rec| decode_cell_record(rec, strings))
+                .map_or(CellValue::Empty, |rec| {
+                    decode_cell_record(rec, strings, rich_texts)
+                })
         })
         .collect()
 }
@@ -275,7 +366,11 @@ fn decode_cells(
 /// tells them apart. The flags still locate the value within the trailing field
 /// region — for numbers they distinguish a 16-byte decimal128 (`0x1`) from an
 /// 8-byte IEEE double (`0x2`).
-fn decode_cell_record(rec: &[u8], strings: &HashMap<u32, String>) -> CellValue {
+fn decode_cell_record(
+    rec: &[u8],
+    strings: &HashMap<u32, String>,
+    rich_texts: &HashMap<u32, String>,
+) -> CellValue {
     if rec.len() < 12 || rec[0] != WIDE_CELL_VERSION {
         return CellValue::Empty;
     }
@@ -303,11 +398,11 @@ fn decode_cell_record(rec: &[u8], strings: &HashMap<u32, String>) -> CellValue {
             .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
             .and_then(|key| strings.get(&key).cloned())
             .map_or(CellValue::Empty, CellValue::Text),
-        // Rich (formatted) text (type 9) carries a u32 key (flag `0x10`) into the
-        // table's *rich-text* store, not the plain string `DataList`: key →
-        // rich-text `DataList` → type-6218 object → type-2001 storage whose field 3
-        // is the plain string. Resolving that chain is pending TSWP text-storage
-        // work, so type 9 — and any other unknown type — falls through to `Empty`.
+        CELL_TYPE_RICH_TEXT => body
+            .get(..4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .and_then(|key| rich_texts.get(&key).cloned())
+            .map_or(CellValue::Empty, CellValue::Text),
         _ => CellValue::Empty,
     }
 }
@@ -345,55 +440,62 @@ mod tests {
     fn decode_cell_record_decodes_each_type_byte() {
         let mut strings = HashMap::new();
         strings.insert(7, "Utilities".to_owned());
+        let empty_rich: HashMap<u32, String> = HashMap::new();
 
-        let number = decode_cell_record(&double_record(CELL_TYPE_NUMBER, 0x2, 42.5), &strings);
+        let number = decode_cell_record(&double_record(CELL_TYPE_NUMBER, 0x2, 42.5), &strings, &empty_rich);
         assert_eq!(number, CellValue::Number(42.5));
 
         let decimal =
-            decode_cell_record(&decimal_record(CELL_TYPE_NUMBER, 1234), &strings);
+            decode_cell_record(&decimal_record(CELL_TYPE_NUMBER, 1234), &strings, &empty_rich);
         assert_eq!(decimal, CellValue::Number(1234.0));
 
         let date_seconds = 625_881_600.0_f64;
-        let date = decode_cell_record(&double_record(CELL_TYPE_DATE, 0x4, date_seconds), &strings);
+        let date = decode_cell_record(&double_record(CELL_TYPE_DATE, 0x4, date_seconds), &strings, &empty_rich);
         assert_eq!(date, CellValue::Date(date_seconds));
 
-        let bool_true = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 1.0), &strings);
+        let bool_true = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 1.0), &strings, &empty_rich);
         assert_eq!(bool_true, CellValue::Bool(true));
-        let bool_false = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 0.0), &strings);
+        let bool_false = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 0.0), &strings, &empty_rich);
         assert_eq!(bool_false, CellValue::Bool(false));
 
         // 2h30m == 9000s, stored as an 8-byte double like a bool.
-        let duration = decode_cell_record(&double_record(CELL_TYPE_DURATION, 0x2, 9000.0), &strings);
+        let duration = decode_cell_record(&double_record(CELL_TYPE_DURATION, 0x2, 9000.0), &strings, &empty_rich);
         assert_eq!(duration, CellValue::Duration(9000.0));
 
         // Error cells carry no value field, just the type byte.
-        let error = decode_cell_record(&double_record_bytes(CELL_TYPE_ERROR, 0x800, &[1, 0, 0, 0]), &strings);
+        let error = decode_cell_record(&double_record_bytes(CELL_TYPE_ERROR, 0x800, &[1, 0, 0, 0]), &strings, &empty_rich);
         assert_eq!(error, CellValue::Error);
 
-        // Rich text (type 9) references the TSWP store; not resolved yet -> Empty.
-        const CELL_TYPE_RICH_TEXT: u8 = 9;
-        let rich = decode_cell_record(&text_record_typed(CELL_TYPE_RICH_TEXT, 1), &strings);
-        assert_eq!(rich, CellValue::Empty);
+        // Rich text (type 9) resolves through the 6218→2001 chain.
+        let mut rich_map: HashMap<u32, String> = HashMap::new();
+        rich_map.insert(1, "hello rich".to_owned());
+        let rich = decode_cell_record(&text_record_typed(CELL_TYPE_RICH_TEXT, 1), &strings, &rich_map);
+        assert_eq!(rich, CellValue::Text("hello rich".to_owned()));
 
-        let text = decode_cell_record(&text_record(7), &strings);
+        // Rich text key not in map → Empty.
+        let rich_miss = decode_cell_record(&text_record_typed(CELL_TYPE_RICH_TEXT, 99), &strings, &rich_map);
+        assert_eq!(rich_miss, CellValue::Empty);
+
+        let text = decode_cell_record(&text_record(7), &strings, &empty_rich);
         assert_eq!(text, CellValue::Text("Utilities".to_owned()));
     }
 
     #[test]
     fn decode_cell_record_returns_empty_for_unknown_or_truncated_payloads() {
         let strings = HashMap::new();
+        let rich: HashMap<u32, String> = HashMap::new();
 
-        assert_eq!(decode_cell_record(&[], &strings), CellValue::Empty);
+        assert_eq!(decode_cell_record(&[], &strings, &rich), CellValue::Empty);
         // Right version but an unrecognized type byte.
-        assert_eq!(decode_cell_record(&[0x05; 12], &strings), CellValue::Empty);
+        assert_eq!(decode_cell_record(&[0x05; 12], &strings, &rich), CellValue::Empty);
         // A number cell whose double payload is truncated.
         assert_eq!(
-            decode_cell_record(&double_record_bytes(CELL_TYPE_NUMBER, 0x2, &[1, 2, 3]), &strings),
+            decode_cell_record(&double_record_bytes(CELL_TYPE_NUMBER, 0x2, &[1, 2, 3]), &strings, &rich),
             CellValue::Empty
         );
         // A text cell whose key is truncated.
         assert_eq!(
-            decode_cell_record(&double_record_bytes(CELL_TYPE_TEXT, 0x8, &3u16.to_le_bytes()), &strings),
+            decode_cell_record(&double_record_bytes(CELL_TYPE_TEXT, 0x8, &3u16.to_le_bytes()), &strings, &rich),
             CellValue::Empty
         );
     }
@@ -415,9 +517,10 @@ mod tests {
 
         // field(2) = 2 here, but the value cell is at index 2 — all three
         // columns must be decoded (leading-empty-column scenario from more_types).
+        let empty_rich: HashMap<u32, String> = HashMap::new();
         let msg = row_message(Some(2), &storage, &[0, 20, 40]);
         assert_eq!(
-            decode_cells(&msg, &strings),
+            decode_cells(&msg, &strings, &empty_rich),
             vec![
                 CellValue::Number(10.0),
                 CellValue::Text("Groceries".to_owned()),
@@ -429,7 +532,7 @@ mod tests {
         // after it is included because it is the last non-sentinel.
         let msg2 = row_message(None, &storage, &[0, 20, 0xffff, 40]);
         assert_eq!(
-            decode_cells(&msg2, &strings),
+            decode_cells(&msg2, &strings, &empty_rich),
             vec![
                 CellValue::Number(10.0),
                 CellValue::Text("Groceries".to_owned()),
