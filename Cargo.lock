@@ -12,3 +12,4 @@ dependencies = [
 [[package]]
 name = "protorev"
 version = "0.1.0"
+source = "git+https://github.com/patrickomatic/protorev.git#c499f1e355e4249b0162277e1324d917f6de4194"
