@@ -98,3 +98,71 @@ fn examples_are_classified_by_extension() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[test]
+fn pages_exposes_template_name() -> Result<(), Error> {
+    let expected = [
+        ("examples/pages/modern_novel.pages", "11B_Novel_Modern"),
+        ("examples/pages/term_paper.pages", "04B_Term_Paper"),
+    ];
+    for (path, name) in expected {
+        let body = pages::Document::open(path)?.document()?;
+        assert_eq!(
+            body.template_name(),
+            Some(name),
+            "{path}: expected template name {name:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn keynote_exposes_theme_name() -> Result<(), Error> {
+    let expected = [
+        ("examples/keynote/basic_white.key", "21_BasicWhite"),
+        ("examples/keynote/blueprint.key", "Blueprint"),
+        ("examples/keynote/parchment.key", "Parchment"),
+    ];
+    for (path, name) in expected {
+        let presentation = keynote::Document::open(path)?.presentation()?;
+        assert_eq!(
+            presentation.theme_name(),
+            Some(name),
+            "{path}: expected theme name {name:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn keynote_slide_template_distinction() -> Result<(), Error> {
+    for path in KEYNOTE_EXAMPLES {
+        let presentation = keynote::Document::open(path)?.presentation()?;
+        let slides = presentation.slides();
+
+        assert!(
+            slides.iter().any(|s| !s.is_template()),
+            "{path}: expected at least one non-template slide"
+        );
+        assert!(
+            slides.iter().any(|s| s.is_template()),
+            "{path}: expected at least one template slide"
+        );
+        for slide in slides {
+            if slide.is_template() {
+                assert!(
+                    slide.path().contains("TemplateSlide"),
+                    "{path}: template slide path should contain 'TemplateSlide', got {}",
+                    slide.path()
+                );
+            } else {
+                assert!(
+                    !slide.path().contains("TemplateSlide"),
+                    "{path}: non-template slide path should not contain 'TemplateSlide', got {}",
+                    slide.path()
+                );
+            }
+        }
+    }
+    Ok(())
+}

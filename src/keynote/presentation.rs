@@ -1,24 +1,40 @@
 use crate::iwa::IwaArchive;
 use crate::iwa_text::extract_utf8_fields;
+use crate::protobuf::ProtoMessage;
 use crate::{Error, Package};
-use std::path::Path;
+
+/// Message type of the Keynote theme descriptor object.
+///
+/// This object carries `field 1.3` = theme name (e.g. "Blueprint", "Parchment").
+/// Validated across all three Keynote fixtures; field path is structurally
+/// invariant (not dependent on document content).
+const THEME_TYPE: u64 = 10;
+
+const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
+
+/// Prefix that identifies a real (non-template) slide archive.
+const SLIDE_PREFIX: &str = "Index/Slide-";
+/// Prefix that identifies a template slide archive (layout masters).
+const TEMPLATE_PREFIX: &str = "Index/TemplateSlide-";
+const IWA_EXT: &str = ".iwa";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Presentation {
+    theme_name: Option<String>,
     slides: Vec<Slide>,
 }
 
 impl Presentation {
     pub(crate) fn from_package(package: &Package) -> Result<Self, Error> {
+        let theme_name = decode_theme_name(package)?;
+
         let mut slides = package
             .entries()
             .iter()
-            .filter(|entry| entry.path.starts_with("Index/"))
-            .filter(|entry| entry.path.contains("Slide"))
             .filter(|entry| {
-                Path::new(&entry.path)
-                    .extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("iwa"))
+                let p = &entry.path;
+                (p.starts_with(SLIDE_PREFIX) || p.starts_with(TEMPLATE_PREFIX))
+                    && p.ends_with(IWA_EXT)
             })
             .map(|entry| {
                 let archive = IwaArchive::decode(package.entry_bytes(&entry.path)?)?;
@@ -27,19 +43,37 @@ impl Presentation {
             .collect::<Result<Vec<_>, Error>>()?;
 
         slides.sort_by(|left, right| left.path.cmp(&right.path));
-        slides.retain(|slide| {
-            slide.title.is_some()
-                || slide.layout_name.is_some()
-                || !slide.text_fragments.is_empty()
-                || !slide.media_descriptions.is_empty()
-        });
 
-        Ok(Self { slides })
+        Ok(Self { theme_name, slides })
+    }
+
+    pub fn theme_name(&self) -> Option<&str> {
+        self.theme_name.as_deref()
     }
 
     pub fn slides(&self) -> &[Slide] {
         &self.slides
     }
+}
+
+/// Reads the theme name from the type-10 object in `Document.iwa`.
+///
+/// Field path: `field 1` (nested) → `field 3` (UTF-8 string).
+fn decode_theme_name(package: &Package) -> Result<Option<String>, Error> {
+    let bytes = package.entry_bytes(DOCUMENT_ENTRY)?;
+    let archive = IwaArchive::decode(bytes)?;
+
+    let name = archive
+        .objects()
+        .into_iter()
+        .find(|obj| obj.message_type == Some(THEME_TYPE))
+        .and_then(|obj| ProtoMessage::decode(&obj.payload).ok())
+        .and_then(|msg| msg.field(1).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+        .and_then(|inner| ProtoMessage::decode(&inner).ok())
+        .and_then(|msg| msg.field(3).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+        .and_then(|bytes| String::from_utf8(bytes).ok());
+
+    Ok(name)
 }
 
 /// UTF-8 string fields decoded from a Keynote slide archive.
@@ -63,7 +97,7 @@ impl Slide {
         let fragments = extract_utf8_fields(archive);
 
         Self {
-            is_template: path.contains("TemplateSlide"),
+            is_template: path.starts_with(TEMPLATE_PREFIX),
             layout_name: None,
             media_descriptions: Vec::new(),
             path,
