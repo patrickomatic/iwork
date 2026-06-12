@@ -434,6 +434,43 @@ fn stylesheet_payload_bold_and_italic_are_structural() -> Result<(), Error> {
         "expected at least one payload with field 2 = 1 (italic)"
     );
 
+    // Records should be driven by the type-401 name registry, not raw byte heuristics.
+    // personal_budget.numbers has 466 named styles; each should have a name.
+    let budget_package = Package::open(PERSONAL_BUDGET_EXAMPLE)?;
+    let budget_bytes = budget_package.entry_bytes("Index/DocumentStylesheet.iwa")?;
+    let budget_archive = IwaArchive::decode(budget_bytes)?;
+    let budget_catalog = crate::stylesheet::StylesheetCatalog::from_archive(&budget_archive);
+    assert!(
+        budget_catalog.records.len() >= 400,
+        "expected ≥400 named style records, got {}",
+        budget_catalog.records.len()
+    );
+    // All records must have a non-empty name.
+    assert!(
+        budget_catalog.records.iter().all(|r| !r.name.is_empty()),
+        "every record should have a name from the type-401 registry"
+    );
+    // Several records should carry font sizes decoded from field 11.3.
+    let with_font_size = budget_catalog
+        .records
+        .iter()
+        .filter(|r| r.attributes.font_size.is_some())
+        .count();
+    assert!(
+        with_font_size >= 100,
+        "expected ≥100 records with a decoded font size, got {with_font_size}"
+    );
+    // Several records should carry colors decoded from field 11.7.
+    let with_color = budget_catalog
+        .records
+        .iter()
+        .filter(|r| r.attributes.color.is_some())
+        .count();
+    assert!(
+        with_color >= 50,
+        "expected ≥50 records with a decoded text color, got {with_color}"
+    );
+
     Ok(())
 }
 
