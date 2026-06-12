@@ -210,8 +210,8 @@ metadata.
 
 ### Reverse-engineering workflow
 
-Protobuf introspection is handled by the `protorev` workbench
-(`crates/protorev`); the iwork examples only decode the IWA/Snappy framing and
+Protobuf introspection is handled by the external `protorev` workbench
+(https://github.com/patrickomatic/protorev); the iwork examples only decode the IWA/Snappy framing and
 hand raw payloads to it, rather than re-implementing wire decoding.
 
 **IWA framing overview.** Use the graph tools to see the package's archives and

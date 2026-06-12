@@ -66,7 +66,7 @@ The example files in `examples/` contain arbitrary user data. Never use the actu
 
 ### Reverse-Engineering Tooling
 
-Do format investigation with the committed tools, **not throwaway scripts**. `protorev` (`crates/protorev`, a separate workspace crate) is the protobuf reverse-engineering workbench; the `iwork` examples decode the IWA/Snappy framing and feed raw object payloads to it. Don't hand-roll protobuf wire decoding or shape inference in examples — delegate to `protorev`.
+Do format investigation with the committed tools, **not throwaway scripts**. `protorev` (https://github.com/patrickomatic/protorev, consumed as an external dev-dependency) is the protobuf reverse-engineering workbench; the `iwork` examples decode the IWA/Snappy framing and feed raw object payloads to it. Don't hand-roll protobuf wire decoding or shape inference in examples — delegate to `protorev`.
 
 - `cargo run --example dump_iwa_graph -- <file>` / `diff_iwa_graph -- <a> <b>` — IWA framing + object-stream overview; per-archive shape and diff come from a `protorev` `Corpus`.
 - `cargo run --example inspect_numbers -- <file> [name-filter]` — per-object protobuf dump via `protorev::dump_message`.

@@ -168,7 +168,7 @@ calculation-engine references.
 
 Example tools help map those missing structures without turning fixture content
 into parser heuristics. They decode the IWA/Snappy framing and hand the raw
-protobuf payloads to the [`protorev`](crates/protorev) workbench rather than
+protobuf payloads to the [`protorev`](https://github.com/patrickomatic/protorev) workbench rather than
 re-implementing wire decoding:
 
 ```bash
