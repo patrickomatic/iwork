@@ -10,6 +10,12 @@ use crate::{Error, Package};
 /// invariant (not dependent on document content).
 const THEME_TYPE: u64 = 10;
 
+/// Message type of the Keynote media/image object.
+///
+/// field 1 (bytes) → field 8 (bytes → UTF-8): image alt-text.
+/// Validated across all Keynote fixtures that include images.
+const MEDIA_TYPE: u64 = 3005;
+
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 
 /// Prefix that identifies a real (non-template) slide archive.
@@ -76,12 +82,26 @@ fn decode_theme_name(package: &Package) -> Result<Option<String>, Error> {
     Ok(name)
 }
 
-/// UTF-8 string fields decoded from a Keynote slide archive.
+/// Reads alt-text from all type-3005 media objects in the archive.
 ///
-/// This walks the decoded IWA protobuf fields for each slide-related archive.
-/// It does not classify layout names, titles, media descriptions, presenter
-/// notes, or animations until those Keynote object fields are decoded
-/// explicitly.
+/// Field path: `field 1` (nested) → `field 8` (UTF-8 string).
+fn decode_media_descriptions(archive: &IwaArchive) -> Vec<String> {
+    archive
+        .objects()
+        .iter()
+        .filter(|obj| obj.message_type == Some(MEDIA_TYPE))
+        .filter_map(|obj| {
+            ProtoMessage::decode(&obj.payload)
+                .ok()
+                .and_then(|msg| msg.field(1).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|inner| ProtoMessage::decode(&inner).ok())
+                .and_then(|msg| msg.field(8).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+        })
+        .collect()
+}
+
+/// Structured fields decoded from a Keynote slide archive.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Slide {
     path: String,
@@ -94,14 +114,15 @@ pub struct Slide {
 
 impl Slide {
     fn from_archive(path: String, archive: &IwaArchive) -> Self {
-        let fragments = extract_utf8_fields(archive);
+        let text_fragments = extract_utf8_fields(archive);
+        let media_descriptions = decode_media_descriptions(archive);
 
         Self {
             is_template: path.starts_with(TEMPLATE_PREFIX),
             layout_name: None,
-            media_descriptions: Vec::new(),
+            media_descriptions,
             path,
-            text_fragments: fragments,
+            text_fragments,
             title: None,
         }
     }
