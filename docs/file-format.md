@@ -311,9 +311,8 @@ independently, and field 8 holds the name Numbers displays.
 - Field 6: row count (varint) — total rows, header rows included
 - Field 7: column count (varint) — total columns, header columns included
 - Field 8: table name (string)
-- Field 9: header row count (varint) — believed; always `<= row count`, but not
-  yet cross-validated against the header storage buckets
-- Field 10: header column count (varint) — same confidence caveat
+- Field 9: header row count (varint) — always `<= row count`
+- Field 10: header column count (varint) — always `<= column count`
 
 ### DataStore (TableModel field 4)
 
@@ -321,11 +320,11 @@ Field 4 of the `TableModel` is the `DataStore`, which references the table's
 storage objects:
 
 - Field 1 → field 2: reference (`{ field 1: HeaderStorageBucket object id }`)
-  to one of the table's two header storage buckets. Validated across every
-  fixture: together with field 2 below, each `TableModel` references exactly two
-  type-6006 bucket objects.
+  to the row-indexed `HeaderStorageBucket`. Validated across every fixture:
+  each entry index in this bucket is below the table's row count.
 - Field 2: reference (`{ field 1: HeaderStorageBucket object id }`) to the
-  second header storage bucket.
+  column-indexed `HeaderStorageBucket`. Validated across every fixture: each
+  entry index in this bucket is below the table's column count.
 - Field 3: `TileStorage` — field 1 is the repeated tile list; each entry is
   `{ field 1: tile index, field 2: { field 1: Tile object id } }`, and field 2
   is the tile size (rows per tile, 256). A table taller than the tile size is
@@ -366,15 +365,17 @@ above. The currently grounded shape is:
 
 Entry message fields:
 
-- Field 1: index/ordinal varint. In the tall `attendance.numbers` fixture,
-  populated bucket indices reach row 619, matching the table's final row index.
+- Field 1: axis index varint. In row buckets it indexes table rows; in column
+  buckets it indexes table columns. This is cross-validated against every
+  table model's declared row/column counts. In the tall `attendance.numbers`
+  fixture, the row bucket reaches row 619, matching the table's final row index.
 - Field 2: fixed32 raw bits
 - Field 3: varint
 - Field 4: varint
 
 The reader exposes these as structural entries through
-`numbers::HeaderStorageBucket`; row/column/header semantics for fields 2-4 are
-not promoted yet.
+`numbers::HeaderStorageBucket`; layout semantics for entry fields 2-4 are not
+promoted yet.
 
 ## DataList IWA Format (Index/Tables/DataList*.iwa)
 

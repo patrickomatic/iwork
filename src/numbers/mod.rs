@@ -8,7 +8,8 @@
 //! - `Spreadsheet::tables()` resolves string `DataList` payloads and decodes
 //!   table rows from `Tile` archives
 //! - [`CellValue`] surfaces the currently supported scalar cell types:
-//!   text, numbers, dates, and empty cells
+//!   text, rich text, numbers, dates, booleans, durations, formula errors,
+//!   cached formula results, currency, percentages, and empty cells
 //!
 //! See `docs/file-format.md` for the reverse-engineered field layout used by
 //! the row decoder.

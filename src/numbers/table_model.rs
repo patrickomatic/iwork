@@ -72,6 +72,8 @@ pub struct TableModel {
     string_data_list_id: Option<u64>,
     rich_text_data_list_id: Option<u64>,
     cell_format_data_list_id: Option<u64>,
+    row_header_storage_bucket_id: Option<u64>,
+    column_header_storage_bucket_id: Option<u64>,
     header_storage_bucket_ids: Vec<u64>,
 }
 
@@ -131,6 +133,12 @@ impl TableModel {
             cell_format_data_list_id: data_store
                 .as_ref()
                 .and_then(|ds| decode_reference_id(ds, STORE_FIELD_FORMATS)),
+            row_header_storage_bucket_id: data_store
+                .as_ref()
+                .and_then(decode_row_header_storage_bucket_id),
+            column_header_storage_bucket_id: data_store
+                .as_ref()
+                .and_then(decode_column_header_storage_bucket_id),
             header_storage_bucket_ids: data_store
                 .as_ref()
                 .map(decode_header_storage_bucket_ids)
@@ -213,9 +221,27 @@ impl TableModel {
         self.cell_format_data_list_id
     }
 
-    /// Identifiers of the table's `HeaderStorageBucket` objects. There are
-    /// usually two per table model; their internal entry semantics are still
-    /// exposed structurally through [`crate::numbers::HeaderStorageBucket`].
+    /// Identifier of the row-indexed `HeaderStorageBucket`, referenced through
+    /// `DataStore.field 1.2`.
+    ///
+    /// Bucket entry indices run along the table's row axis in fixture evidence.
+    /// The entry payload fields are still structural values exposed through
+    /// [`crate::numbers::HeaderStorageBucket`].
+    pub fn row_header_storage_bucket_id(&self) -> Option<u64> {
+        self.row_header_storage_bucket_id
+    }
+
+    /// Identifier of the column-indexed `HeaderStorageBucket`, referenced
+    /// through `DataStore.field 2`.
+    ///
+    /// Bucket entry indices run along the table's column axis in fixture
+    /// evidence.
+    pub fn column_header_storage_bucket_id(&self) -> Option<u64> {
+        self.column_header_storage_bucket_id
+    }
+
+    /// Identifiers of the table's `HeaderStorageBucket` objects in stored
+    /// row-bucket then column-bucket order.
     pub fn header_storage_bucket_ids(&self) -> &[u64] {
         &self.header_storage_bucket_ids
     }
@@ -277,17 +303,24 @@ fn decode_string_data_list_id(data_store: &ProtoMessage) -> Option<u64> {
     decode_reference_id(data_store, STORE_FIELD_STRINGS)
 }
 
-fn decode_header_storage_bucket_ids(data_store: &ProtoMessage) -> Vec<u64> {
-    let mut ids = Vec::new();
-    if let Some(id) = data_store
+fn decode_row_header_storage_bucket_id(data_store: &ProtoMessage) -> Option<u64> {
+    data_store
         .field(STORE_FIELD_HEADER_STORAGE_GROUP)
         .and_then(|f| f.value.as_bytes())
         .and_then(|bytes| ProtoMessage::decode(bytes).ok())
         .and_then(|group| decode_reference_id(&group, HEADER_STORAGE_GROUP_REFERENCE))
-    {
+}
+
+fn decode_column_header_storage_bucket_id(data_store: &ProtoMessage) -> Option<u64> {
+    decode_reference_id(data_store, STORE_FIELD_HEADER_STORAGE)
+}
+
+fn decode_header_storage_bucket_ids(data_store: &ProtoMessage) -> Vec<u64> {
+    let mut ids = Vec::new();
+    if let Some(id) = decode_row_header_storage_bucket_id(data_store) {
         ids.push(id);
     }
-    if let Some(id) = decode_reference_id(data_store, STORE_FIELD_HEADER_STORAGE) {
+    if let Some(id) = decode_column_header_storage_bucket_id(data_store) {
         ids.push(id);
     }
     ids

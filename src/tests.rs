@@ -851,12 +851,19 @@ fn table_models_reference_header_storage_buckets() -> Result<(), Error> {
     for path in NUMBERS_EXAMPLES {
         let spreadsheet = numbers::Document::open(path)?.spreadsheet()?;
         for model in spreadsheet.table_models() {
+            let row_bucket_id = model
+                .row_header_storage_bucket_id()
+                .ok_or(Error::InvalidIwa("missing row header storage bucket id"))?;
+            let column_bucket_id = model
+                .column_header_storage_bucket_id()
+                .ok_or(Error::InvalidIwa("missing column header storage bucket id"))?;
             assert_eq!(
-                model.header_storage_bucket_ids().len(),
-                2,
-                "{path} table {:?} should reference two HeaderStorageBucket objects",
+                model.header_storage_bucket_ids(),
+                &[row_bucket_id, column_bucket_id],
+                "{path} table {:?} should expose row then column HeaderStorageBucket ids",
                 model.name(),
             );
+
             for id in model.header_storage_bucket_ids() {
                 let bucket = spreadsheet
                     .header_storage_bucket(*id)
@@ -878,6 +885,30 @@ fn table_models_reference_header_storage_buckets() -> Result<(), Error> {
                     .iter()
                     .any(|entry| entry.index() == u64::from(model.row_count().saturating_sub(1)));
             }
+
+            let row_bucket = spreadsheet
+                .header_storage_bucket(row_bucket_id)
+                .ok_or(Error::InvalidIwa("missing row header storage bucket"))?;
+            assert!(
+                row_bucket
+                    .entries()
+                    .iter()
+                    .all(|entry| entry.index() < u64::from(model.row_count())),
+                "{path} table {:?} row bucket entries should index the row axis",
+                model.name(),
+            );
+
+            let column_bucket = spreadsheet
+                .header_storage_bucket(column_bucket_id)
+                .ok_or(Error::InvalidIwa("missing column header storage bucket"))?;
+            assert!(
+                column_bucket
+                    .entries()
+                    .iter()
+                    .all(|entry| entry.index() < u64::from(model.column_count())),
+                "{path} table {:?} column bucket entries should index the column axis",
+                model.name(),
+            );
         }
     }
 

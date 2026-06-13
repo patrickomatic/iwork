@@ -1,4 +1,4 @@
-use iwork::numbers::{self, CellValue};
+use iwork::numbers::{self, CellValue, Spreadsheet};
 
 fn main() -> Result<(), iwork::Error> {
     let path = std::env::args()
@@ -9,12 +9,23 @@ fn main() -> Result<(), iwork::Error> {
 
     for (model, table) in spreadsheet.decoded_tables() {
         println!(
-            "{} — {}x{} ({} rows decoded)",
+            "{} — {}x{} headers {}x{} ({} rows decoded)",
             model.name().unwrap_or("(unnamed)"),
             model.row_count(),
             model.column_count(),
+            model.header_row_count(),
+            model.header_column_count(),
             table.rows().len(),
         );
+        if let Some(id) = model.row_header_storage_bucket_id() {
+            println!("  row header bucket: {}", bucket_summary(&spreadsheet, id));
+        }
+        if let Some(id) = model.column_header_storage_bucket_id() {
+            println!(
+                "  column header bucket: {}",
+                bucket_summary(&spreadsheet, id)
+            );
+        }
         for row in table.rows().iter().take(3) {
             let cells = row
                 .cells
@@ -26,6 +37,23 @@ fn main() -> Result<(), iwork::Error> {
     }
 
     Ok(())
+}
+
+fn bucket_summary(spreadsheet: &Spreadsheet, id: u64) -> String {
+    spreadsheet.header_storage_bucket(id).map_or_else(
+        || format!("{id} missing"),
+        |bucket| {
+            let entry_count = bucket.entries().len();
+            let first = bucket.entries().first().map(|entry| entry.index());
+            let last = bucket.entries().last().map(|entry| entry.index());
+            let common_span = bucket
+                .entries()
+                .first()
+                .map(|entry| entry.field4())
+                .unwrap_or(0);
+            format!("{id} entries={entry_count} first={first:?} last={last:?} span={common_span}")
+        },
+    )
 }
 
 fn display_cell(cell: &CellValue) -> String {
