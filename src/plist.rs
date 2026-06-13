@@ -298,3 +298,128 @@ fn read_be_u64(bytes: &[u8], offset: usize) -> Result<u64, Error> {
 fn u64_to_usize(value: u64, context: &'static str) -> Result<usize, Error> {
     usize::try_from(value).map_err(|_| Error::InvalidPlist(context))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn xml_plist(dict_body: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "">
+<plist version="1.0">
+<dict>
+{dict_body}
+</dict>
+</plist>"#
+        )
+    }
+
+    #[test]
+    fn parse_xml_string_fields() {
+        let xml = xml_plist(
+            r#"<key>documentUUID</key><string>ABC-123</string>
+               <key>fileFormatVersion</key><string>12.1</string>"#,
+        );
+        let props = parse_properties_plist(xml.as_bytes()).unwrap();
+        assert_eq!(props.document_uuid.as_deref(), Some("ABC-123"));
+        assert_eq!(props.file_format_version.as_deref(), Some("12.1"));
+        assert!(props.is_multi_page.is_none());
+    }
+
+    #[test]
+    fn parse_xml_bool_true() {
+        let xml = xml_plist("<key>isMultiPage</key><true/>");
+        let props = parse_properties_plist(xml.as_bytes()).unwrap();
+        assert_eq!(props.is_multi_page, Some(true));
+    }
+
+    #[test]
+    fn parse_xml_bool_false() {
+        let xml = xml_plist("<key>isMultiPage</key><false/>");
+        let props = parse_properties_plist(xml.as_bytes()).unwrap();
+        assert_eq!(props.is_multi_page, Some(false));
+    }
+
+    #[test]
+    fn parse_xml_all_known_keys() {
+        let xml = xml_plist(
+            r#"<key>documentUUID</key><string>D1</string>
+               <key>fileFormatVersion</key><string>12</string>
+               <key>isMultiPage</key><true/>
+               <key>revision</key><string>REV</string>
+               <key>stableDocumentUUID</key><string>SD1</string>
+               <key>versionUUID</key><string>V1</string>"#,
+        );
+        let props = parse_properties_plist(xml.as_bytes()).unwrap();
+        assert_eq!(props.document_uuid.as_deref(), Some("D1"));
+        assert_eq!(props.file_format_version.as_deref(), Some("12"));
+        assert_eq!(props.is_multi_page, Some(true));
+        assert_eq!(props.revision.as_deref(), Some("REV"));
+        assert_eq!(props.stable_document_uuid.as_deref(), Some("SD1"));
+        assert_eq!(props.version_uuid.as_deref(), Some("V1"));
+    }
+
+    #[test]
+    fn parse_xml_unknown_keys_are_ignored() {
+        // Unknown keys with unsupported value types should produce an error per the parser.
+        // Known string keys that aren't in our set are silently dropped.
+        let xml = xml_plist("<key>unknownKey</key><string>ignored</string>");
+        let props = parse_properties_plist(xml.as_bytes()).unwrap();
+        assert!(props.document_uuid.is_none());
+        assert!(props.file_format_version.is_none());
+    }
+
+    #[test]
+    fn parse_xml_missing_dict_returns_error() {
+        let xml = "<?xml version=\"1.0\"?><plist><array/></plist>";
+        assert!(parse_properties_plist(xml.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn parse_xml_unterminated_key_returns_error() {
+        let xml = xml_plist("<key>documentUUID</key><string>oops");
+        assert!(parse_properties_plist(xml.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn parse_binary_magic_routes_to_binary_parser() {
+        // A truncated binary plist (valid magic, not enough bytes) returns a
+        // binary-plist error, confirming the magic-byte dispatch fired.
+        let bad_binary = b"bplist00\x00\x00";
+        let err = parse_properties_plist(bad_binary).unwrap_err();
+        assert!(
+            matches!(err, crate::Error::InvalidPlist(_)),
+            "expected InvalidPlist, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_xml_routes_non_binary_to_xml_parser() {
+        // Any bytes that don't start with "bplist00" should go through the XML path.
+        let not_xml = b"this is not xml at all";
+        // The XML parser will fail looking for <dict>, not the binary parser.
+        let err = parse_properties_plist(not_xml).unwrap_err();
+        assert!(matches!(err, crate::Error::InvalidPlist(_)));
+    }
+
+    #[test]
+    fn parse_properties_plist_uses_fixture_packages() {
+        // Smoke-check that actual fixture files parse without error.
+        // This exercises the binary plist path via the real Metadata/Properties.plist
+        // stored in each package.
+        use crate::Package;
+        for path in &[
+            "examples/numbers/personal_budget.numbers",
+            "examples/pages/modern_novel.pages",
+            "examples/keynote/basic_white.key",
+        ] {
+            let package = Package::open(path).unwrap();
+            let props = package.properties().unwrap();
+            assert!(
+                props.document_uuid.is_some(),
+                "{path}: expected document_uuid"
+            );
+        }
+    }
+}

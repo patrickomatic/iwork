@@ -53,22 +53,39 @@ impl Body {
     }
 
     /// The iWork template identifier used to create this document, if present.
+    ///
+    /// Sourced from type-10001 field `1.3`. Example values: `"04B_Term_Paper"`,
+    /// `"11B_Novel_Modern"`. Returns `None` for documents not based on a named
+    /// template.
     pub fn template_name(&self) -> Option<&str> {
         self.template_name.as_deref()
     }
 
+    /// The document title, or `None` until paragraph-style classification is
+    /// implemented.
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
 
+    /// Heading strings, empty until paragraph-style classification is
+    /// implemented.
     pub fn headings(&self) -> &[String] {
         &self.headings
     }
 
+    /// All unique text fragments from the document body, in document order.
+    ///
+    /// Decoded from TSWP type-2001 field 3. Paragraphs are separated by `\n`;
+    /// TSWP block boundaries (non-whitespace control bytes such as `\x04`) and
+    /// object-replacement characters (U+FFFC) are stripped. Fragments are
+    /// deduplicated.
     pub fn text_fragments(&self) -> &[String] {
         &self.text_fragments
     }
 
+    /// Alt-text strings for all images in the document, in archive order.
+    ///
+    /// Decoded from type-3005 field `1.8`.
     pub fn media_descriptions(&self) -> &[String] {
         &self.media_descriptions
     }
