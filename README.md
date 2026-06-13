@@ -8,7 +8,8 @@
 - exposes package entries and raw entry bytes
 - can write stored ZIP packages and encode protobuf / IWA payloads
 - reads `Metadata/Properties.plist`
-- reads Numbers table cell values — text, numbers (decimal128), and dates
+- reads Numbers sheets, table models, and table cell values — text, rich text,
+  numbers (decimal128), dates, booleans, durations, errors, currency, and percentages
 - can build Numbers table archives from scratch for scalar cell data
 - inspects `Index/DocumentStylesheet.iwa` for simple keyword signals
 - extracts UTF-8 string fields from Pages documents and Keynote decks
@@ -78,6 +79,27 @@ fn main() -> Result<(), iwork::Error> {
 }
 ```
 
+List a Numbers document's sheets and the table models they contain:
+
+```rust
+use iwork::numbers;
+
+fn main() -> Result<(), iwork::Error> {
+    let spreadsheet = numbers::Document::open("examples/numbers/my_stocks.numbers")?
+        .spreadsheet()?;
+
+    for sheet in spreadsheet.sheets() {
+        println!(
+            "{}: {:?}",
+            sheet.name().unwrap_or("(unnamed)"),
+            sheet.table_model_ids()
+        );
+    }
+
+    Ok(())
+}
+```
+
 Read cell values from a Numbers spreadsheet:
 
 ```rust
@@ -94,6 +116,7 @@ fn main() -> Result<(), iwork::Error> {
                     CellValue::Number(n) => println!("number: {n}"),
                     CellValue::Date(secs) => println!("date:   {secs} s since 2001-01-01"),
                     CellValue::Empty => {}
+                    _ => {}
                 }
             }
         }
@@ -144,9 +167,11 @@ The Numbers reader currently follows a two-stage model:
 
 - `Spreadsheet::table_models()` decodes each table's name and grid geometry from
   its `TableModel` object (the authoritative table list)
+- `Spreadsheet::sheets()` decodes sheet names and resolves sheet membership from
+  `Sheet -> TableInfo -> TableModel`
 - `Spreadsheet::decoded_tables()` follows each model's `DataStore` to its tiles
-  and string list, returning one `(TableModel, Table)` per real table with cells
-  resolved per-table (no cross-table string-key collisions)
+  and string / rich-text / format lists, returning one `(TableModel, Table)` per
+  real table with cells resolved per-table (no cross-table string-key collisions)
 - `Spreadsheet::table_archives()` exposes the raw `Index/Tables/*.iwa` archives
 - `Spreadsheet::tables()` resolves those archives into decoded rows and [`CellValue`](src/numbers/table.rs) values (lower-level; one entry per tile)
 

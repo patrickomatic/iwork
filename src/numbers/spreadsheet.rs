@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-use super::table::{CellFormat, Table, decode_cell_format_datalist, decode_rich_text_datalist, decode_string_datalist};
+use super::sheet::{Sheet, table_info_to_model_ids};
+use super::table::{
+    CellFormat, Table, decode_cell_format_datalist, decode_rich_text_datalist,
+    decode_string_datalist,
+};
 use super::table_model::TableModel;
 use crate::iwa::IwaArchive;
 use crate::{Error, Package, StylesheetCatalog};
@@ -87,6 +91,20 @@ impl Spreadsheet {
         models.sort_by_key(TableModel::id);
         models.dedup_by_key(|model| model.id());
         models
+    }
+
+    /// Decodes the document's sheets and their table membership.
+    ///
+    /// Sheet objects live in `Index/Document.iwa`. Each sheet carries its
+    /// display name and an ordered list of object references; filtering those
+    /// references to `TableInfo` objects and resolving each `TableInfo` to its
+    /// `TableModel` gives the sheet's table order.
+    pub fn sheets(&self) -> Vec<Sheet> {
+        let table_info_to_model_ids =
+            table_info_to_model_ids(&[&self.document, &self.calculation_engine]);
+        let mut sheets = Sheet::collect(&self.document, &table_info_to_model_ids);
+        sheets.sort_by_key(Sheet::id);
+        sheets
     }
 
     pub fn stylesheet_catalog(&self) -> StylesheetCatalog {

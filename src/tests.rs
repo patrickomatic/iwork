@@ -759,6 +759,63 @@ fn numbers_table_models_expose_names_and_geometry() -> Result<(), Error> {
 }
 
 #[test]
+fn numbers_sheets_expose_names_and_table_membership() -> Result<(), Error> {
+    let spreadsheet =
+        numbers::Document::open("examples/numbers/my_stocks.numbers")?.spreadsheet()?;
+    let sheets = spreadsheet.sheets();
+    let models = spreadsheet.table_models();
+
+    let mut sheet_names: Vec<_> = sheets
+        .iter()
+        .filter_map(|sheet| sheet.name().map(str::to_owned))
+        .collect();
+    sheet_names.sort();
+    assert_eq!(
+        sheet_names,
+        vec!["30-Day History".to_owned(), "Portfolio".to_owned()]
+    );
+
+    let table_name_for_id = |id: u64| {
+        models
+            .iter()
+            .find(|model| model.id() == id)
+            .and_then(numbers::TableModel::name)
+            .map(str::to_owned)
+    };
+
+    let tables_for_sheet = |name: &str| -> Vec<String> {
+        sheets
+            .iter()
+            .find(|sheet| sheet.name() == Some(name))
+            .map(|sheet| {
+                sheet
+                    .table_model_ids()
+                    .iter()
+                    .filter_map(|id| table_name_for_id(*id))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    assert_eq!(
+        tables_for_sheet("30-Day History"),
+        vec!["30-Day History Table".to_owned()]
+    );
+    assert_eq!(
+        tables_for_sheet("Portfolio"),
+        vec!["My Portfolio".to_owned(), "Overview".to_owned()]
+    );
+    assert!(
+        sheets
+            .iter()
+            .all(|sheet| !sheet.table_info_ids().is_empty()),
+        "each decoded sheet should retain its TableInfo references"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn table_model_geometry_matches_decoded_tile_dimensions() -> Result<(), Error> {
     // The "Summary by Category" table is the only model in personal_budget; its
     // declared geometry must match the dimensions the tile decoder recovers.

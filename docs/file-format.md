@@ -176,11 +176,14 @@ structural evidence by one of two methods:
 The table chain `Sheet → TableInfo → TableModel → Tile + DataList +
 HeaderStorageBucket` was recovered structurally: object identifiers are large
 unique integers, so a payload varint equal to another object's identifier is a
-reliable reference edge. The `TableModel` (6001) references its storage objects
-and carries the table name; one `TableInfo` (6000) wraps each `TableModel`; and
-`Sheet` (2) objects are referenced directly by the `Document` root with a count
-equal to the document's sheet count. The `6000`/`6001` objects live inside
-`Index/CalculationEngine.iwa`, not `Index/Document.iwa`.
+reliable reference edge. `Sheet` (2) objects are referenced directly by the
+`Document` root with a count equal to the document's sheet count; field 1 is the
+sheet name and field 2 carries ordered object references that include the
+sheet's `TableInfo` objects. The `TableModel` (6001) references its storage
+objects and carries the table name; one `TableInfo` (6000) usually wraps one
+`TableModel`, while some pivot-table structures can reference more than one. The
+`6000`/`6001` objects live inside `Index/CalculationEngine.iwa`, not
+`Index/Document.iwa`.
 
 Other in-stream types (text storages, drawables, styles, and number formats)
 remain unnamed until confirmed the same way rather than guessed from a single
@@ -284,6 +287,18 @@ Style attribute payload fields:
 
 Records without field 11 may have attributes in nearby `0x5a` payload messages (field 11 of the outer stream). Enrichment searches the body for the sequence `0x08 <varint_object_id>` within 1000 bytes of a `0x5a` payload.
 
+## Sheet (message type 2)
+
+`Sheet` objects live inside `Index/Document.iwa` and carry sheet-level metadata
+plus object references. The currently grounded fields are:
+
+- Field 1: sheet name (UTF-8 string)
+- Field 2: repeated object references (`{ field 1: object id }`); filtering the
+  referenced ids to known `TableInfo` objects recovers the sheet's table order
+
+`numbers::Spreadsheet::sheets()` exposes the decoded sheet name, the retained
+`TableInfo` ids, and the `TableModel` ids resolved through the object graph.
+
 ## TableModel (message type 6001)
 
 `TableModel` objects live inside `Index/CalculationEngine.iwa` (one per table)
@@ -319,13 +334,20 @@ storage objects:
   are the table's text cells (e.g. "Date", "Groceries"), distinct from the
   number-format store. Scoping string lookups to this per-table list keeps cell
   string keys from colliding across tables.
+- Field 17: reference to the rich-text cell `DataList`. Each entry points to a
+  type-6218 wrapper object, which points to a type-2001 text storage object. The
+  type-2001 object's field 3 is the plain UTF-8 string surfaced by the reader.
+- Field 22: reference to the cell-format `DataList`. Entries map format keys to
+  format descriptors; field `6.1` is the format kind (`257` currency, `258`
+  percentage, `268` duration observed), and field `6.3` carries the ISO 4217
+  currency code for currency formats.
 
 `numbers::Spreadsheet::table_models()` decodes the geometry; `Spreadsheet::table()`
 and `Spreadsheet::decoded_tables()` follow the DataStore to merge the model's
-tiles (in tile order) and resolve its strings, producing one decoded grid per
-real table. This is the authoritative table view; `Spreadsheet::tables()` is a
-lower-level path that decodes each `Tile` archive independently and can surface
-tiles not bound to any model.
+tiles (in tile order) and resolve its strings, rich text, and formats, producing
+one decoded grid per real table. This is the authoritative table view;
+`Spreadsheet::tables()` is a lower-level path that decodes each `Tile` archive
+independently and can surface tiles not bound to any model.
 
 ## DataList IWA Format (Index/Tables/DataList*.iwa)
 
@@ -338,6 +360,14 @@ For **string DataLists**, additional body messages each represent one entry:
 - Field 1: key (varint, 1-based)
 - Field 2: count (varint, usually 1)
 - Field 3: string value (bytes, UTF-8)
+
+For **rich-text DataLists**, each entry carries a key plus field 9, a reference
+to a co-resident type-6218 wrapper object. That wrapper references a type-2001
+text storage object; field 3 of the type-2001 payload is the plain UTF-8 string.
+
+For **cell-format DataLists**, each entry carries a key plus field 6, a nested
+format descriptor. The reader currently uses descriptor field 1 to distinguish
+currency and percentage formats, and descriptor field 3 for the currency code.
 
 For **numeric DataLists**, the actual values are stored inline in the Tile row's field 6 (see below), not in the DataList archive. The DataList archive body only records the count.
 
@@ -376,11 +406,19 @@ Record header *(structurally grounded — verified across multiple real tile arc
 | `3`  | text | u32 string-`DataList` key (flag `0x8`) | `Text` | text columns, all fixtures |
 | `5`  | date | 8-byte double, Cocoa-epoch seconds (flag `0x4`) | `Date` | date columns |
 | `6`  | boolean | 8-byte double `0.0`/`1.0` (flag `0x2`) | `Bool` | `attendance` checkboxes (4944) |
-| `10` | formula number | decimal128 (flag `0x1`), like type `2` | `Number` | computed columns (`my_stocks`, `personal_budget`) |
+| `7`  | duration | 8-byte double seconds (flag `0x2`) | `Duration` | `more_types` duration cell |
+| `8`  | formula error | no recoverable value; error id in trailing field | `Error` | `more_types` `=1/0` cell |
+| `9`  | rich text | u32 rich-text-`DataList` key (flag `0x10`) | `Text` | `more_types` rich-text cell |
+| `10` | decimal number variant | decimal128 (flag `0x1`), like type `2` | `Number` or formatted number | currency/formatted columns |
 
 The flag bits still locate the value within the trailing field region. The value-bearing bits (`0x1` decimal128, `0x2` double, `0x4` date, `0x8` string key) occupy the low nibble and precede any format/style/formula references, so the selected value always begins at byte 12. Higher bits (formula id, style ids, number-format id, …) follow but are not needed to recover the value.
 
-Type `10` is decoded as its numeric result; whether it *always* coincides with a formula reference has not been cross-validated against the formula store yet. Cell types not in the table above (duration, error, rich text) do not appear in any current fixture, so their type-byte values are not asserted — confirming them needs a crafted fixture. (A `ver=0x00` "record" only appears when offsets are misread inside the pivot table's special storage; the `rec[0] != 0x05` gate rejects it.)
+Type `10` is decoded as its numeric result and may be refined to `Currency` or
+`Percentage` when the cell's number-format key resolves through the format
+`DataList`. Whether it *always* coincides with a formula or formatted numeric
+reference has not been cross-validated against the formula store yet. A
+`ver=0x00` "record" only appears when offsets are misread inside the pivot
+table's special storage; the `rec[0] != 0x05` gate rejects it.
 
 Use `cargo run --example dump_cells -- <file> [--limit N]` to dump per-cell `type`/`flags`/payload and the type-byte→flag-mask summary; this is how the table above was derived.
 
@@ -399,9 +437,12 @@ Dates are f64 seconds since the Cocoa/NSDate epoch: **January 1, 2001, 00:00:00 
 These format details surface through the public Numbers API like this:
 
 - `numbers::Document::spreadsheet()` decodes the core document archives plus `Index/Tables/*.iwa`
+- `Spreadsheet::sheets()` decodes sheet names and sheet-to-table membership
 - `Spreadsheet::table_archives()` exposes the raw decoded `DataList` and `Tile` archives
 - `Spreadsheet::tables()` resolves string `DataList` entries first, then decodes row/cell values from each tile
-- `TableRow::cells` contains `CellValue::{Empty, Text, Number, Date}`
+- `Spreadsheet::decoded_tables()` follows each `TableModel` to resolve strings,
+  rich text, formats, and multi-tile row offsets
+- `TableRow::cells` contains `CellValue::{Empty, Bool, Currency, Date, Duration, Error, Number, Percentage, Text}`
 
 The fixture-backed tests assert structural properties of decoded rows and cells
 without using authored values from the examples as format scaffolding.
