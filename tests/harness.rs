@@ -20,6 +20,7 @@ const KEYNOTE_EXAMPLES: &[&str] = &[
     "examples/keynote/basic_white.key",
     "examples/keynote/blueprint.key",
     "examples/keynote/parchment.key",
+    "examples/keynote/with_content.key",
 ];
 
 #[test]
@@ -253,6 +254,37 @@ fn pages_exposes_text_fragments() -> Result<(), Error> {
     assert!(
         frags.contains(&"About the Author".to_owned()),
         "expected 'About the Author' heading in text_fragments, got: {frags:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn keynote_slides_expose_text_fragments() -> Result<(), Error> {
+    let presentation =
+        keynote::Document::open("examples/keynote/with_content.key")?.presentation()?;
+
+    let title_slide = presentation
+        .slides()
+        .iter()
+        .find(|s| !s.is_template() && s.text_fragments().contains(&"This is a presentation title".to_owned()))
+        .expect("with_content.key should have a title slide");
+
+    assert!(
+        title_slide.text_fragments().contains(&"By Mr Author".to_owned()),
+        "title slide should contain author line, got: {:?}",
+        title_slide.text_fragments()
+    );
+
+    let content_slide = presentation
+        .slides()
+        .iter()
+        .find(|s| !s.is_template() && s.text_fragments().contains(&"This is a slide title".to_owned()))
+        .expect("with_content.key should have a slide with a title");
+
+    assert!(
+        !content_slide.text_fragments().is_empty(),
+        "content slide should have text_fragments"
     );
 
     Ok(())
