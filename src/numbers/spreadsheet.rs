@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use super::sheet::{Sheet, table_info_to_model_ids};
+use super::header_storage::HeaderStorageBucket;
+use super::sheet::{table_info_to_model_ids, Sheet};
 use super::table::{
-    CellFormat, Table, decode_cell_format_datalist, decode_rich_text_datalist,
-    decode_string_datalist,
+    decode_cell_format_datalist, decode_rich_text_datalist, decode_string_datalist, CellFormat,
+    Table,
 };
 use super::table_model::TableModel;
 use crate::iwa::IwaArchive;
@@ -109,6 +110,12 @@ impl Spreadsheet {
 
     pub fn stylesheet_catalog(&self) -> StylesheetCatalog {
         StylesheetCatalog::from_archive(&self.stylesheet)
+    }
+
+    /// Decodes a `HeaderStorageBucket` archive by root object id.
+    pub fn header_storage_bucket(&self, root_object_id: u64) -> Option<HeaderStorageBucket> {
+        self.archive_by_root(root_object_id)
+            .and_then(HeaderStorageBucket::from_archive)
     }
 
     pub fn table_archives(&self) -> &[TableArchive] {

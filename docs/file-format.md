@@ -320,6 +320,12 @@ independently, and field 8 holds the name Numbers displays.
 Field 4 of the `TableModel` is the `DataStore`, which references the table's
 storage objects:
 
+- Field 1 → field 2: reference (`{ field 1: HeaderStorageBucket object id }`)
+  to one of the table's two header storage buckets. Validated across every
+  fixture: together with field 2 below, each `TableModel` references exactly two
+  type-6006 bucket objects.
+- Field 2: reference (`{ field 1: HeaderStorageBucket object id }`) to the
+  second header storage bucket.
 - Field 3: `TileStorage` — field 1 is the repeated tile list; each entry is
   `{ field 1: tile index, field 2: { field 1: Tile object id } }`, and field 2
   is the tile size (rows per tile, 256). A table taller than the tile size is
@@ -348,6 +354,27 @@ tiles (in tile order) and resolve its strings, rich text, and formats, producing
 one decoded grid per real table. This is the authoritative table view;
 `Spreadsheet::tables()` is a lower-level path that decodes each `Tile` archive
 independently and can surface tiles not bound to any model.
+
+## HeaderStorageBucket IWA Format (Index/Tables/HeaderStorageBucket*.iwa)
+
+`HeaderStorageBucket` archives are leaf archives whose root object has message
+type 6006. They are referenced from each `TableModel`'s `DataStore` as described
+above. The currently grounded shape is:
+
+- Field 1: constant varint `1` across all fixture buckets
+- Field 2: repeated entry messages, present only in populated buckets
+
+Entry message fields:
+
+- Field 1: index/ordinal varint. In the tall `attendance.numbers` fixture,
+  populated bucket indices reach row 619, matching the table's final row index.
+- Field 2: fixed32 raw bits
+- Field 3: varint
+- Field 4: varint
+
+The reader exposes these as structural entries through
+`numbers::HeaderStorageBucket`; row/column/header semantics for fields 2-4 are
+not promoted yet.
 
 ## DataList IWA Format (Index/Tables/DataList*.iwa)
 

@@ -816,6 +816,65 @@ fn numbers_sheets_expose_names_and_table_membership() -> Result<(), Error> {
 }
 
 #[test]
+fn table_models_reference_header_storage_buckets() -> Result<(), Error> {
+    const NUMBERS_EXAMPLES: &[&str] = &[
+        "examples/numbers/attendance.numbers",
+        "examples/numbers/more_types.numbers",
+        "examples/numbers/my_stocks.numbers",
+        "examples/numbers/personal_budget.numbers",
+        "examples/numbers/pivot_table.numbers",
+        "examples/numbers/table_and_charts.numbers",
+    ];
+
+    let mut non_empty_buckets = 0usize;
+    let mut saw_tall_table_last_index = false;
+
+    for path in NUMBERS_EXAMPLES {
+        let spreadsheet = numbers::Document::open(path)?.spreadsheet()?;
+        for model in spreadsheet.table_models() {
+            assert_eq!(
+                model.header_storage_bucket_ids().len(),
+                2,
+                "{path} table {:?} should reference two HeaderStorageBucket objects",
+                model.name(),
+            );
+            for id in model.header_storage_bucket_ids() {
+                let bucket = spreadsheet
+                    .header_storage_bucket(*id)
+                    .ok_or(Error::InvalidIwa("missing header storage bucket"))?;
+                assert_eq!(bucket.id(), *id);
+                if !bucket.entries().is_empty() {
+                    non_empty_buckets += 1;
+                }
+                assert!(
+                    bucket
+                        .entries()
+                        .windows(2)
+                        .all(|pair| pair[0].index() < pair[1].index()),
+                    "{path} table {:?} bucket {id} entries should be ordered by index",
+                    model.name(),
+                );
+                saw_tall_table_last_index |= bucket
+                    .entries()
+                    .iter()
+                    .any(|entry| entry.index() == u64::from(model.row_count().saturating_sub(1)));
+            }
+        }
+    }
+
+    assert!(
+        non_empty_buckets > 0,
+        "fixtures should include populated HeaderStorageBucket entries"
+    );
+    assert!(
+        saw_tall_table_last_index,
+        "at least one header bucket should span the final row index of a tall table"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn table_model_geometry_matches_decoded_tile_dimensions() -> Result<(), Error> {
     // The "Summary by Category" table is the only model in personal_budget; its
     // declared geometry must match the dimensions the tile decoder recovers.
