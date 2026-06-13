@@ -162,6 +162,7 @@ structural evidence by one of two methods:
 | 213  | AnnotationAuthorStorage | `Index/AnnotationAuthorStorage.iwa`             |
 | 401  | DocumentStylesheet      | `Index/DocumentStylesheet.iwa`                  |
 | 4000 | CalculationEngine       | `Index/CalculationEngine.iwa`                   |
+| 4008 | FormulaRecord           | field 2 matches formula ids stored in some cells |
 | 6000 | TableInfo               | wraps one TableModel; count = table count       |
 | 6001 | TableModel              | references Tile/DataList/HeaderStorageBucket; holds table name |
 | 6002 | Tile                    | `Index/Tables/Tile*.iwa`                        |
@@ -221,9 +222,9 @@ hand raw payloads to it, rather than re-implementing wire decoding.
 object stream:
 
 ```bash
-cargo run --example dump_iwa_graph -- path/to/document.numbers
-cargo run --example diff_iwa_graph -- before.numbers after.numbers
-cargo run --example inspect_numbers -- path/to/document.numbers [name-filter]
+cargo run -p iwork-workbench --bin dump_iwa_graph -- path/to/document.numbers
+cargo run -p iwork-workbench --bin diff_iwa_graph -- before.numbers after.numbers
+cargo run -p iwork-workbench --bin inspect_numbers -- path/to/document.numbers [name-filter]
 ```
 
 `dump_iwa_graph` summarizes every `.iwa` archive: descriptor fields, object
@@ -239,10 +240,10 @@ message type across one or more packages and runs the full `protorev` feature
 set on that corpus:
 
 ```bash
-cargo run --example iwa_corpus -- schema  6001 examples/numbers/*.numbers
-cargo run --example iwa_corpus -- explain 6001 9 examples/numbers/*.numbers
-cargo run --example iwa_corpus -- values  6001 8 examples/numbers/*.numbers
-cargo run --example iwa_corpus -- diff    6001 before.numbers after.numbers
+cargo run -p iwork-workbench --bin iwa_corpus -- schema  6001 examples/numbers/*.numbers
+cargo run -p iwork-workbench --bin iwa_corpus -- explain 6001 9 examples/numbers/*.numbers
+cargo run -p iwork-workbench --bin iwa_corpus -- values  6001 8 examples/numbers/*.numbers
+cargo run -p iwork-workbench --bin iwa_corpus -- diff    6001 before.numbers after.numbers
 ```
 
 `schema` emits a confidence-gated draft `.proto` (`--min-confidence
@@ -258,9 +259,9 @@ object's id is a reliable edge) — the technique that named the
 `Sheet → TableInfo → TableModel` chain.
 
 ```bash
-cargo run --example iwa_refs -- types <file.numbers>...        # object-type histogram
-cargo run --example iwa_refs -- edges 6001 <file.numbers>...   # types referenced by each TableModel
-cargo run --example iwa_refs -- refs  904486 <file.numbers>    # which objects reference an id
+cargo run -p iwork-workbench --bin iwa_refs -- types <file.numbers>...        # object-type histogram
+cargo run -p iwork-workbench --bin iwa_refs -- edges 6001 <file.numbers>...   # types referenced by each TableModel
+cargo run -p iwork-workbench --bin iwa_refs -- refs  904486 <file.numbers>    # which objects reference an id
 ```
 
 The intended discipline is to create controlled Apple Numbers fixtures that
@@ -353,6 +354,21 @@ tiles (in tile order) and resolve its strings, rich text, and formats, producing
 one decoded grid per real table. This is the authoritative table view;
 `Spreadsheet::tables()` is a lower-level path that decodes each `Tile` archive
 independently and can surface tiles not bound to any model.
+
+## FormulaRecord (message type 4008)
+
+`FormulaRecord` objects live inside `Index/CalculationEngine.iwa`. They provide
+the first decoded join point between tile cells and the formula graph:
+
+- Field 2: local formula id. This matches formula ids stored in some wide-cell
+  trailing fields when flag `0x0200` is set.
+- Field 3: raw formula-kind/classifier varint. Expression semantics are not
+  decoded yet.
+
+`Spreadsheet::formula_records()` exposes these records, and
+`Spreadsheet::formula_record(id)` resolves formula ids that have a matching
+type-4008 record. Some formula-result cell ids do not resolve here yet; the
+expression/dependency payload remains unmapped.
 
 ## HeaderStorageBucket IWA Format (Index/Tables/HeaderStorageBucket*.iwa)
 
@@ -450,7 +466,7 @@ marker and formula id are surfaced. A `ver=0x00` "record" only appears when
 offsets are misread inside the pivot table's special storage; the `rec[0] !=
 0x05` gate rejects it.
 
-Use `cargo run --example dump_cells -- <file> [--limit N]` to dump per-cell `type`/`flags`/payload and the type-byte→flag-mask summary; this is how the table above was derived.
+Use `cargo run -p iwork-workbench --bin dump_cells -- <file> [--limit N]` to dump per-cell `type`/`flags`/payload and the type-byte→flag-mask summary; this is how the table above was derived.
 
 **Decimal128.** Numbers stores numeric values as IEEE 754-2008 decimal128 (16 bytes, little-endian). The two high bytes hold the sign bit and biased exponent; bytes 0-13 plus the low bit of byte 14 form the coefficient. `decode_decimal128` converts to `f64`: `coefficient × 10^(exp)` where `exp = (((b[15] & 0x7f) << 7) | (b[14] >> 1)) - 0x1820` and the sign comes from `b[15] & 0x80`. This mirrors the well-known `numbers-parser` decode.
 

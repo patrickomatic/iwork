@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::formula::FormulaRecord;
 use super::header_storage::HeaderStorageBucket;
 use super::sheet::{table_info_to_model_ids, Sheet};
 use super::table::{
@@ -102,6 +103,24 @@ impl Spreadsheet {
         models.sort_by_key(TableModel::id);
         models.dedup_by_key(|model| model.id());
         models
+    }
+
+    /// Decodes formula records from `Index/CalculationEngine.iwa`.
+    ///
+    /// These are type-4008 objects whose field 2 matches formula ids preserved
+    /// on some formula-result cells. The expression payload is not decoded yet,
+    /// but this provides the first stable join from cells to formula records.
+    pub fn formula_records(&self) -> Vec<FormulaRecord> {
+        let mut records = FormulaRecord::collect(&self.calculation_engine);
+        records.sort_by_key(FormulaRecord::formula_id);
+        records
+    }
+
+    /// Finds a formula record by a local formula id stored on a formula cell.
+    pub fn formula_record(&self, formula_id: u32) -> Option<FormulaRecord> {
+        self.formula_records()
+            .into_iter()
+            .find(|record| record.formula_id() == formula_id)
     }
 
     /// Decodes the document's sheets and their table membership.
