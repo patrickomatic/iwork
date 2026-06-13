@@ -42,17 +42,33 @@ const CELL_ATTR_ALIGNMENT: u32 = 1;
 const STYLE_FIELD_BASE: u32 = 1;
 const BASE_FIELD_NAME: u32 = 1;
 
+/// A summary of all style information extracted from a `DocumentStylesheet.iwa`
+/// archive.
+///
+/// The catalog is built heuristically — it surfaces identifiers, font names,
+/// style names, and text-attribute snapshots that can be read from the stylesheet
+/// object graph without a full schema. Use the individual fields for quick
+/// inspection or keyword matching.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StylesheetCatalog {
+    /// Object IDs referenced by the leading block of the stylesheet body.
     pub referenced_object_ids: Vec<u64>,
+    /// All style identifier strings found in the `DocumentStylesheet` registry.
     pub identifiers: Vec<String>,
+    /// Unique font-family names decoded from style text-attribute records.
     pub font_names: Vec<String>,
+    /// Unique display style names that pass the plausibility filter.
     pub style_names: Vec<String>,
+    /// One decoded attribute set per style record (may be empty if no
+    /// text-attribute fields are present).
     pub records: Vec<StyleRecord>,
+    /// Unique non-empty attribute sets seen across all records, for inspection.
     pub attribute_hints: Vec<StyleAttributes>,
 }
 
 impl StylesheetCatalog {
+    /// Decode a `StylesheetCatalog` from a decoded `DocumentStylesheet.iwa`
+    /// archive.
     pub fn from_archive(archive: &IwaArchive) -> Self {
         let referenced_object_ids = archive.leading_object_references();
 

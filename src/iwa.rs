@@ -7,6 +7,14 @@ const SNAPPY_CHUNK_TYPE: u8 = 0;
 /// matching the 64 KiB window real iWork writers use.
 const IWA_CHUNK_SIZE: usize = 64 * 1024;
 
+/// A decoded `.iwa` archive: the Snappy-framed, protobuf-structured binary
+/// files that make up the content of an iWork package.
+///
+/// On disk each `.iwa` is a stream of Snappy chunks (kind byte 0). After
+/// decompression the bytes form an `ArchiveInfo` header packet followed by
+/// zero or more `(ArchiveInfo, payload)` object records. This type decodes
+/// that structure and exposes the header/descriptor, the raw body, and a
+/// parsed object stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IwaArchive {
     chunks: Vec<IwaChunk>,
@@ -16,6 +24,11 @@ pub struct IwaArchive {
 }
 
 impl IwaArchive {
+    /// Decode a `.iwa` file from its raw on-disk bytes.
+    ///
+    /// Decompresses every Snappy chunk, then parses the decompressed stream
+    /// into a header [`IwaPacket`], a root [`IwaArchiveDescriptor`], and a
+    /// body that contains the rest of the archive's object records.
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         let mut chunks = Vec::new();
         let mut archive_bytes = Vec::new();
@@ -69,18 +82,26 @@ impl IwaArchive {
         })
     }
 
+    /// The Snappy chunks that make up this archive's on-disk form.
     pub fn chunks(&self) -> &[IwaChunk] {
         &self.chunks
     }
 
+    /// The leading `ArchiveInfo` packet (the archive header).
     pub fn header(&self) -> &IwaPacket {
         &self.header
     }
 
+    /// The root object's descriptor, decoded from the archive header.
     pub fn descriptor(&self) -> &IwaArchiveDescriptor {
         &self.descriptor
     }
 
+    /// The raw decompressed bytes that follow the header packet.
+    ///
+    /// Contains the payloads of all objects in the archive interleaved with
+    /// their `ArchiveInfo` length-prefix records. Use [`Self::objects`] to
+    /// get a parsed view.
     pub fn body(&self) -> &[u8] {
         &self.body
     }
@@ -175,6 +196,12 @@ impl IwaArchive {
         objects
     }
 
+    /// Reads the leading `field 1` object-reference varints from the body.
+    ///
+    /// The body of some `.iwa` archives begins with a sequence of `{field 1:
+    /// {inner field 8: object_id}}` records before the first real object. These
+    /// give a fast list of the object IDs the archive's root object directly
+    /// references, without having to decode the full object stream.
     pub fn leading_object_references(&self) -> Vec<u64> {
         let mut references = Vec::new();
         let mut cursor = 0;
@@ -223,6 +250,11 @@ impl IwaArchive {
         references
     }
 
+    /// Byte length consumed by the leading object-reference block.
+    ///
+    /// Returns the number of bytes at the start of the body that belong to the
+    /// leading reference sequence (see [`Self::leading_object_references`]).
+    /// The first real object payload starts at this offset.
     pub fn leading_object_references_len(&self) -> usize {
         let mut cursor = 0;
 
@@ -269,6 +301,10 @@ impl IwaArchive {
         cursor
     }
 
+    /// Extracts printable ASCII runs from the raw body, for heuristic scanning.
+    ///
+    /// A run is a maximal sequence of graphic ASCII characters and spaces. Only
+    /// runs at least `min_len` characters long are returned.
     pub fn ascii_strings(&self, min_len: usize) -> Vec<String> {
         let mut strings = Vec::new();
         let mut current = Vec::new();
@@ -336,13 +372,22 @@ impl IwaArchive {
     }
 }
 
+/// Metadata for one Snappy chunk within an `.iwa` file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IwaChunk {
+    /// The chunk kind byte (always `0` for Snappy in supported archives).
     pub kind: u8,
+    /// Byte length of the compressed payload on disk.
     pub compressed_len: usize,
+    /// Byte length after Snappy decompression.
     pub decompressed_len: usize,
 }
 
+/// A length-prefixed protobuf packet within an IWA archive stream.
+///
+/// An `IwaPacket` is either the leading header packet (whose content is an
+/// `ArchiveInfo` / `IwaArchiveDescriptor`) or an intermediate info record
+/// that precedes an object payload in the body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IwaPacket {
     pub offset: usize,
@@ -350,27 +395,36 @@ pub struct IwaPacket {
 }
 
 impl IwaPacket {
+    /// Wrap raw `ArchiveInfo` protobuf bytes into a packet for encoding.
     pub fn new(bytes: Vec<u8>) -> Self {
         Self { offset: 0, bytes }
     }
 
+    /// The raw protobuf bytes of this packet.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Decode the packet bytes as a [`ProtoMessage`].
     pub fn decode_message(&self) -> Result<ProtoMessage, Error> {
         ProtoMessage::decode(&self.bytes)
     }
 }
 
+/// The decoded `ArchiveInfo` header that describes one object in an IWA
+/// archive — its identity, message type, and cross-archive references.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IwaArchiveDescriptor {
+    /// The object identifier of this archive's root object.
     pub root_object_id: Option<u64>,
+    /// The iWork message type of the root object (e.g. `6001` for `TableModel`).
     pub kind_hint: Option<u64>,
-    /// Raw `MessageInfo.version` bytes (`f2`, e.g. `[1, 0, 5]`). Real archives
+    /// Raw `MessageInfo.version` bytes (e.g. `[1, 0, 5]`). Real archives
     /// always carry this; it must be reproduced or Numbers rejects the file.
     pub message_version: Option<Vec<u8>>,
+    /// Optional body length hint from the `MessageInfo` (field 3).
     pub body_hint: Option<u64>,
+    /// Cross-object references declared by the root object's `ArchiveInfo`.
     pub object_references: Vec<IwaObjectReference>,
 }
 
@@ -508,10 +562,14 @@ fn maybe_decode_message(value: &crate::protobuf::ProtoValue) -> Option<ProtoMess
         .and_then(|bytes| ProtoMessage::decode(bytes).ok())
 }
 
+/// A cross-object reference declared in an `ArchiveInfo` header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IwaObjectReference {
+    /// The referenced object's identifier.
     pub object_id: Option<u64>,
+    /// The message type of the referenced object.
     pub kind_hint: Option<u64>,
+    /// An opaque state field from the reference record.
     pub state_hint: Option<u64>,
 }
 
@@ -709,5 +767,169 @@ fn push_varint(out: &mut Vec<u8>, mut value: u64) {
         if value == 0 {
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal valid IWA header packet (empty `ArchiveInfo` protobuf).
+    /// An empty protobuf is legal: `IwaArchiveDescriptor::decode` treats every
+    /// field as optional and returns all-`None` when they are absent.
+    fn empty_header() -> IwaPacket {
+        IwaPacket::new(vec![])
+    }
+
+    /// Build a header packet from a fully-populated descriptor.
+    fn header_from(descriptor: &IwaArchiveDescriptor) -> IwaPacket {
+        let msg = descriptor.encode_message().unwrap();
+        IwaPacket::new(msg.encode().unwrap())
+    }
+
+    #[test]
+    fn encode_decode_empty_body() {
+        let encoded = IwaArchive::encode(empty_header(), vec![]).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        assert_eq!(decoded.body(), &[] as &[u8]);
+        assert_eq!(decoded.chunks().len(), 1);
+        assert_eq!(decoded.descriptor().root_object_id, None);
+        assert_eq!(decoded.descriptor().kind_hint, None);
+    }
+
+    #[test]
+    fn encode_decode_body_preserved() {
+        let body = b"hello world".to_vec();
+        let encoded = IwaArchive::encode(empty_header(), body.clone()).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        assert_eq!(decoded.body(), body.as_slice());
+    }
+
+    #[test]
+    fn encode_decode_descriptor_preserved() {
+        let descriptor = IwaArchiveDescriptor {
+            root_object_id: Some(42),
+            kind_hint: Some(6001),
+            message_version: Some(vec![1, 0, 5]),
+            body_hint: None,
+            object_references: vec![IwaObjectReference {
+                object_id: Some(99),
+                kind_hint: Some(2),
+                state_hint: None,
+            }],
+        };
+        let encoded = IwaArchive::encode(header_from(&descriptor), vec![]).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        let d = decoded.descriptor();
+        assert_eq!(d.root_object_id, Some(42));
+        assert_eq!(d.kind_hint, Some(6001));
+        assert_eq!(d.message_version, Some(vec![1, 0, 5]));
+        assert_eq!(d.object_references.len(), 1);
+        assert_eq!(d.object_references[0].object_id, Some(99));
+        assert_eq!(d.object_references[0].kind_hint, Some(2));
+        assert_eq!(d.object_references[0].state_hint, None);
+    }
+
+    #[test]
+    fn reencode_roundtrip_preserves_body() {
+        let body = b"test reencode body".to_vec();
+        let encoded = IwaArchive::encode(empty_header(), body.clone()).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        let reencoded = decoded.reencode().unwrap();
+        let redecoded = IwaArchive::decode(&reencoded).unwrap();
+        assert_eq!(redecoded.body(), body.as_slice());
+        assert_eq!(redecoded.descriptor().root_object_id, None);
+    }
+
+    #[test]
+    fn decode_empty_bytes_fails() {
+        let result = IwaArchive::decode(&[]);
+        assert!(matches!(result, Err(Error::InvalidIwa("archive contained no chunks"))));
+    }
+
+    #[test]
+    fn decode_unsupported_chunk_type_fails() {
+        // A 4-byte chunk header with kind=1 and compressed_len=0: no payload needed.
+        let bytes = [1u8, 0, 0, 0];
+        let result = IwaArchive::decode(&bytes);
+        assert!(matches!(result, Err(Error::UnsupportedIwaChunkType(1))));
+    }
+
+    #[test]
+    fn decode_truncated_chunk_header_fails() {
+        // Only 3 bytes — header needs 4.
+        let result = IwaArchive::decode(&[0u8, 0, 0]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn small_archive_produces_single_chunk() {
+        let body = vec![0x41u8; 100]; // 100 'A' bytes
+        let encoded = IwaArchive::encode(empty_header(), body.clone()).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        assert_eq!(decoded.chunks().len(), 1);
+        assert_eq!(decoded.body(), body.as_slice());
+    }
+
+    #[test]
+    fn large_body_produces_multiple_chunks() {
+        // Body larger than IWA_CHUNK_SIZE (64 KiB) forces multiple Snappy chunks.
+        let body = vec![0x42u8; IWA_CHUNK_SIZE + 1];
+        let encoded = IwaArchive::encode(empty_header(), body.clone()).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        assert!(decoded.chunks().len() >= 2);
+        assert_eq!(decoded.body(), body.as_slice());
+    }
+
+    #[test]
+    fn ascii_strings_extracts_printable_runs() {
+        let mut body = b"hello".to_vec();
+        body.push(0x00); // non-printable separator
+        body.extend_from_slice(b"world");
+        let encoded = IwaArchive::encode(empty_header(), body).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        let strings = decoded.ascii_strings(3);
+        assert!(strings.iter().any(|s| s == "hello"), "expected 'hello' in {strings:?}");
+        assert!(strings.iter().any(|s| s == "world"), "expected 'world' in {strings:?}");
+    }
+
+    #[test]
+    fn ascii_strings_respects_min_len() {
+        let mut body = b"ab".to_vec(); // length 2, below threshold
+        body.push(0x00);
+        body.extend_from_slice(b"long_enough");
+        let encoded = IwaArchive::encode(empty_header(), body).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        let strings = decoded.ascii_strings(3);
+        assert!(!strings.iter().any(|s| s == "ab"), "'ab' should be excluded");
+        assert!(strings.iter().any(|s| s == "long_enough"));
+    }
+
+    #[test]
+    fn chunk_decompressed_len_matches_body() {
+        // varint(0) = 1 byte header-len prefix + 0 header bytes + 4 body bytes = 5 total
+        let body = b"test".to_vec();
+        let encoded = IwaArchive::encode(empty_header(), body).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        let chunks = decoded.chunks();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].kind, 0);
+        // 5 decompressed bytes: 1 (varint 0) + 0 (empty header) + 4 (body)
+        assert_eq!(chunks[0].decompressed_len, 5);
+    }
+
+    #[test]
+    fn leading_object_references_empty_for_empty_body() {
+        let encoded = IwaArchive::encode(empty_header(), vec![]).unwrap();
+        let decoded = IwaArchive::decode(&encoded).unwrap();
+        assert!(decoded.leading_object_references().is_empty());
+        assert_eq!(decoded.leading_object_references_len(), 0);
+    }
+
+    #[test]
+    fn iwa_packet_decode_message_on_empty_is_ok() {
+        let packet = empty_header();
+        assert!(packet.decode_message().is_ok());
+        assert_eq!(packet.decode_message().unwrap().fields().len(), 0);
     }
 }

@@ -19,6 +19,9 @@ const STYLESHEET_ENTRY: &str = "Index/DocumentStylesheet.iwa";
 const CALCULATION_ENGINE_ENTRY: &str = "Index/CalculationEngine.iwa";
 const TABLE_PREFIX: &str = "Index/Tables/";
 
+/// All IWA archives from a Numbers package, decoded and ready for querying.
+///
+/// Construct via [`crate::numbers::Document::spreadsheet`].
 #[derive(Debug, Clone)]
 pub struct Spreadsheet {
     document: IwaArchive,
@@ -61,22 +64,27 @@ impl Spreadsheet {
         })
     }
 
+    /// Decoded `Index/Document.iwa` archive (contains `Sheet` and `TableInfo` objects).
     pub fn document(&self) -> &IwaArchive {
         &self.document
     }
 
+    /// Decoded `Index/DocumentMetadata.iwa` archive.
     pub fn document_metadata(&self) -> &IwaArchive {
         &self.document_metadata
     }
 
+    /// Decoded `Index/Metadata.iwa` archive.
     pub fn metadata(&self) -> &IwaArchive {
         &self.metadata
     }
 
+    /// Decoded `Index/DocumentStylesheet.iwa` archive.
     pub fn stylesheet(&self) -> &IwaArchive {
         &self.stylesheet
     }
 
+    /// Decoded `Index/CalculationEngine.iwa` archive (contains `TableModel` objects).
     pub fn calculation_engine(&self) -> &IwaArchive {
         &self.calculation_engine
     }
@@ -110,6 +118,7 @@ impl Spreadsheet {
         sheets
     }
 
+    /// Heuristic style catalog decoded from `Index/DocumentStylesheet.iwa`.
     pub fn stylesheet_catalog(&self) -> StylesheetCatalog {
         StylesheetCatalog::from_archive(&self.stylesheet)
     }
@@ -120,6 +129,8 @@ impl Spreadsheet {
             .and_then(HeaderStorageBucket::from_archive)
     }
 
+    /// All decoded `Index/Tables/*.iwa` archives (tiles, data lists, etc.),
+    /// sorted by path.
     pub fn table_archives(&self) -> &[TableArchive] {
         &self.table_archives
     }
@@ -223,5 +234,85 @@ impl TableArchive {
     /// Decoded IWA archive for the table-related entry.
     pub fn archive(&self) -> &IwaArchive {
         &self.archive
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::numbers;
+
+    const PERSONAL_BUDGET: &str = "examples/numbers/personal_budget.numbers";
+    const PIVOT_TABLE: &str = "examples/numbers/pivot_table.numbers";
+
+    #[test]
+    fn spreadsheet_exposes_named_archives() {
+        let spreadsheet = numbers::Document::open(PERSONAL_BUDGET)
+            .unwrap()
+            .spreadsheet()
+            .unwrap();
+        // Each archive must contain at least one object.
+        assert!(!spreadsheet.document().objects().is_empty());
+        assert!(!spreadsheet.calculation_engine().objects().is_empty());
+        assert!(!spreadsheet.stylesheet().objects().is_empty());
+    }
+
+    #[test]
+    fn spreadsheet_has_table_archives() {
+        let spreadsheet = numbers::Document::open(PERSONAL_BUDGET)
+            .unwrap()
+            .spreadsheet()
+            .unwrap();
+        assert!(!spreadsheet.table_archives().is_empty());
+        assert!(
+            spreadsheet.table_archives().iter().all(|a| a.path().starts_with("Index/Tables/")),
+            "all table archives should live under Index/Tables/"
+        );
+    }
+
+    #[test]
+    fn spreadsheet_table_models_match_decoded_tables() {
+        let spreadsheet = numbers::Document::open(PERSONAL_BUDGET)
+            .unwrap()
+            .spreadsheet()
+            .unwrap();
+        let models = spreadsheet.table_models();
+        let decoded = spreadsheet.decoded_tables();
+        assert_eq!(models.len(), decoded.len());
+        for (model, (dm, _table)) in models.iter().zip(decoded.iter()) {
+            assert_eq!(model.id(), dm.id());
+        }
+    }
+
+    #[test]
+    fn spreadsheet_sheets_have_names() {
+        let spreadsheet = numbers::Document::open(PERSONAL_BUDGET)
+            .unwrap()
+            .spreadsheet()
+            .unwrap();
+        let sheets = spreadsheet.sheets();
+        assert!(!sheets.is_empty());
+        assert!(
+            sheets.iter().all(|s| s.name().is_some()),
+            "all sheets in personal_budget should have a name"
+        );
+    }
+
+    #[test]
+    fn spreadsheet_pivot_table_has_table_models() {
+        let spreadsheet = numbers::Document::open(PIVOT_TABLE)
+            .unwrap()
+            .spreadsheet()
+            .unwrap();
+        assert!(!spreadsheet.table_models().is_empty());
+    }
+
+    #[test]
+    fn stylesheet_catalog_has_font_names() {
+        let spreadsheet = numbers::Document::open(PERSONAL_BUDGET)
+            .unwrap()
+            .spreadsheet()
+            .unwrap();
+        let catalog = spreadsheet.stylesheet_catalog();
+        assert!(!catalog.font_names.is_empty(), "stylesheet should reference at least one font");
     }
 }
