@@ -21,8 +21,8 @@ fn main() -> Result<(), Error> {
 fn hexdump(data: &[u8], limit: usize) {
     let data = &data[..data.len().min(limit)];
     for (i, chunk) in data.chunks(16).enumerate() {
-        print!("{:06x}  ", i * 16);
-        for b in chunk { print!("{:02x} ", b); }
+        print!("{:06x}  ", i * 16_usize);
+        for b in chunk { print!("{b:02x} "); }
         for _ in chunk.len()..16 { print!("   "); }
         print!(" |");
         for b in chunk { print!("{}", if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '.' }); }

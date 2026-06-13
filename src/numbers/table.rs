@@ -11,7 +11,7 @@ pub struct Table {
 
 impl Table {
     /// Parse all rows from a tile archive, resolving string, rich-text, and
-    /// formatted (currency / percentage) cells against their respective DataList maps.
+    /// formatted (currency / percentage) cells against their respective `DataList` maps.
     pub(crate) fn from_tile(
         tile: &IwaArchive,
         strings: &HashMap<u32, String>,
@@ -159,7 +159,7 @@ impl CellValue {
 const FORMAT_KIND_CURRENCY: u64 = 257;
 const FORMAT_KIND_PERCENTAGE: u64 = 258;
 
-/// Decoded cell format from the format `DataList` (DataStore field 22).
+/// Decoded cell format from the format `DataList` (`DataStore` field 22).
 #[derive(Debug, Clone)]
 pub(crate) enum CellFormat {
     Currency { code: Option<String> },
@@ -201,7 +201,7 @@ pub(crate) fn decode_cell_format_datalist(archive: &IwaArchive) -> HashMap<u32, 
             .field(6)
             .and_then(|f| f.value.as_bytes())
             .and_then(|b| crate::protobuf::ProtoMessage::decode(b).ok())
-            .map(|fmt| {
+            .map_or(CellFormat::Other, |fmt| {
                 let kind = fmt.field(1).and_then(|f| f.value.as_varint()).unwrap_or(0);
                 match kind {
                     FORMAT_KIND_CURRENCY => {
@@ -215,8 +215,7 @@ pub(crate) fn decode_cell_format_datalist(archive: &IwaArchive) -> HashMap<u32, 
                     FORMAT_KIND_PERCENTAGE => CellFormat::Percentage,
                     _ => CellFormat::Other,
                 }
-            })
-            .unwrap_or(CellFormat::Other);
+            });
 
         map.insert(key, format);
     }

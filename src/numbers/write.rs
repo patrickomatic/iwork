@@ -575,12 +575,12 @@ fn encode_cell_record(cell: &CellValue, strings: &BTreeMap<String, u32>) -> Resu
     // record[1] is what the reader keys off; the flag locates the value at byte 12.
     let (cell_type, flags, payload) = match cell {
         CellValue::Empty => return Ok(Vec::new()),
-        CellValue::Number(value) => (2u8, 0x2u32, value.to_le_bytes().to_vec()),
+        CellValue::Number(value) | CellValue::Percentage(value) | CellValue::Currency { value, .. } => {
+            (2u8, 0x2u32, value.to_le_bytes().to_vec())
+        }
         CellValue::Bool(value) => (6u8, 0x2u32, f64::from(u8::from(*value)).to_le_bytes().to_vec()),
         CellValue::Date(value) => (5u8, 0x4u32, value.to_le_bytes().to_vec()),
         CellValue::Duration(value) => (7u8, 0x2u32, value.to_le_bytes().to_vec()),
-        CellValue::Percentage(value) => (2u8, 0x2u32, value.to_le_bytes().to_vec()),
-        CellValue::Currency { value, .. } => (2u8, 0x2u32, value.to_le_bytes().to_vec()),
         // An error cell has no value field; the type byte alone round-trips it.
         CellValue::Error => (8u8, 0x0u32, Vec::new()),
         CellValue::Text(value) => {
