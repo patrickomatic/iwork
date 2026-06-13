@@ -60,6 +60,9 @@ pub enum CellValue {
     /// A cell holding a formula error, e.g. `=1/0` (Numbers cell type 8). The
     /// cell carries no recoverable value, only the error state.
     Error,
+    /// A formula cell whose expression is not decoded yet, carrying the cached
+    /// result value stored in the tile.
+    Formula(Box<CellValue>),
     Number(f64),
     /// A percentage value stored as a decimal fraction (e.g. `0.33` for `33%`).
     Percentage(f64),
@@ -69,62 +72,71 @@ pub enum CellValue {
 impl CellValue {
     /// Returns the boolean value for checkbox cells.
     pub fn as_bool(&self) -> Option<bool> {
-        if let Self::Bool(b) = self {
-            Some(*b)
-        } else {
-            None
+        match self {
+            Self::Bool(b) => Some(*b),
+            Self::Formula(value) => value.as_bool(),
+            _ => None,
         }
     }
 
     /// Returns the duration, in seconds, for duration cells.
     pub fn as_duration_seconds(&self) -> Option<f64> {
-        if let Self::Duration(s) = self {
-            Some(*s)
-        } else {
-            None
+        match self {
+            Self::Duration(s) => Some(*s),
+            Self::Formula(value) => value.as_duration_seconds(),
+            _ => None,
         }
     }
 
     /// Returns the Cocoa-epoch seconds for date cells.
     pub fn as_date_seconds(&self) -> Option<f64> {
-        if let Self::Date(s) = self {
-            Some(*s)
-        } else {
-            None
+        match self {
+            Self::Date(s) => Some(*s),
+            Self::Formula(value) => value.as_date_seconds(),
+            _ => None,
         }
     }
 
     /// Returns the amount for currency cells (the raw `f64`, not formatted with symbol).
     pub fn as_currency(&self) -> Option<f64> {
-        if let Self::Currency { value, .. } = self {
-            Some(*value)
-        } else {
-            None
+        match self {
+            Self::Currency { value, .. } => Some(*value),
+            Self::Formula(value) => value.as_currency(),
+            _ => None,
         }
     }
 
     /// Returns the decimal fraction for percentage cells (e.g. `0.33` for 33%).
     pub fn as_percentage(&self) -> Option<f64> {
-        if let Self::Percentage(p) = self {
-            Some(*p)
-        } else {
-            None
+        match self {
+            Self::Percentage(p) => Some(*p),
+            Self::Formula(value) => value.as_percentage(),
+            _ => None,
         }
     }
 
     /// Returns the numeric value for number cells.
     pub fn as_number(&self) -> Option<f64> {
-        if let Self::Number(n) = self {
-            Some(*n)
-        } else {
-            None
+        match self {
+            Self::Number(n) => Some(*n),
+            Self::Formula(value) => value.as_number(),
+            _ => None,
         }
     }
 
     /// Returns the UTF-8 string slice for text cells.
     pub fn as_text(&self) -> Option<&str> {
-        if let Self::Text(s) = self {
-            Some(s)
+        match self {
+            Self::Text(s) => Some(s),
+            Self::Formula(value) => value.as_text(),
+            _ => None,
+        }
+    }
+
+    /// Returns the cached result for formula cells.
+    pub fn formula_result(&self) -> Option<&CellValue> {
+        if let Self::Formula(value) = self {
+            Some(value)
         } else {
             None
         }
@@ -462,6 +474,8 @@ fn decode_cells(
 /// 8-byte IEEE double (`0x2`).
 /// Flag-bit mask for the cell style key (first trailing u32 after the value).
 const FLAG_CELL_STYLE: u32 = 0x1000;
+/// Flag-bit mask observed on cached formula result cells.
+const FLAG_FORMULA_RESULT: u32 = 0x0200;
 /// Flag-bit mask for the numfmt key (second trailing u32 after the value).
 /// Bits 13, 14, and 16 are each used by different cell types but all place
 /// a single numfmt key at the same position in the trailing region.
@@ -480,7 +494,7 @@ fn decode_cell_record(
     let flags = u32::from_le_bytes([rec[8], rec[9], rec[10], rec[11]]);
     let body = &rec[12..];
 
-    match cell_type {
+    let value = match cell_type {
         CELL_TYPE_NUMBER | CELL_TYPE_NUMBER_ALT => {
             let (value, value_len) = if flags & 0x1 != 0 {
                 (body.get(..16).map(decode_decimal128), 16)
@@ -529,6 +543,12 @@ fn decode_cell_record(
             .and_then(|key| rich_texts.get(&key).cloned())
             .map_or(CellValue::Empty, CellValue::Text),
         _ => CellValue::Empty,
+    };
+
+    if flags & FLAG_FORMULA_RESULT != 0 && !matches!(value, CellValue::Empty) {
+        CellValue::Formula(Box::new(value))
+    } else {
+        value
     }
 }
 
@@ -569,6 +589,10 @@ mod tests {
 
         let number = decode_cell_record(&double_record(CELL_TYPE_NUMBER, 0x2, 42.5), &strings, &empty_rich, &HashMap::new());
         assert_eq!(number, CellValue::Number(42.5));
+
+        let formula = decode_cell_record(&double_record(CELL_TYPE_NUMBER, 0x202, 42.5), &strings, &empty_rich, &HashMap::new());
+        assert_eq!(formula.formula_result(), Some(&CellValue::Number(42.5)));
+        assert_eq!(formula.as_number(), Some(42.5));
 
         let decimal =
             decode_cell_record(&decimal_record(CELL_TYPE_NUMBER, 1234), &strings, &empty_rich, &HashMap::new());

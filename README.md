@@ -9,7 +9,8 @@
 - can write stored ZIP packages and encode protobuf / IWA payloads
 - reads `Metadata/Properties.plist`
 - reads Numbers sheets, table models, and table cell values — text, rich text,
-  numbers (decimal128), dates, booleans, durations, errors, currency, and percentages
+  numbers (decimal128), dates, booleans, durations, errors, cached formula
+  results, currency, and percentages
 - can build Numbers table archives from scratch for scalar cell data
 - inspects `Index/DocumentStylesheet.iwa` for simple keyword signals
 - extracts UTF-8 string fields from Pages documents and Keynote decks
