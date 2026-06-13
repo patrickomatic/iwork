@@ -1,0 +1,12 @@
+[package]
+name = "iwork-workbench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+iwork = { path = ".." }
+protorev = { git = "https://github.com/patrickomatic/protorev.git" }
+
+[lints]
+workspace = true
