@@ -13,6 +13,7 @@ const NUMBERS_EXAMPLES: &[&str] = &[
 const PAGES_EXAMPLES: &[&str] = &[
     "examples/pages/modern_novel.pages",
     "examples/pages/term_paper.pages",
+    "examples/pages/eternal_sunshine.pages",
 ];
 
 const KEYNOTE_EXAMPLES: &[&str] = &[
@@ -227,6 +228,31 @@ fn keynote_slides_expose_media_descriptions() -> Result<(), Error> {
             "Sphinx in front of the pyramids of Giza with a clear blue sky in the background",
         ],
         "parchment.key multi-image slide descriptions mismatch"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn pages_exposes_text_fragments() -> Result<(), Error> {
+    let body = pages::Document::open("examples/pages/eternal_sunshine.pages")?.document()?;
+    let frags = body.text_fragments();
+
+    assert!(
+        frags.contains(&"Eternal Shine".to_owned()),
+        "expected document title in text_fragments, got: {frags:?}"
+    );
+    assert!(
+        frags.contains(&"Prologue".to_owned()),
+        "expected 'Prologue' heading in text_fragments, got: {frags:?}"
+    );
+    assert!(
+        frags.contains(&"Chapter 1".to_owned()),
+        "expected 'Chapter 1' heading in text_fragments, got: {frags:?}"
+    );
+    assert!(
+        frags.contains(&"About the Author".to_owned()),
+        "expected 'About the Author' heading in text_fragments, got: {frags:?}"
     );
 
     Ok(())
