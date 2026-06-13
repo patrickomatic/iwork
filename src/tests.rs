@@ -595,6 +595,11 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         formula_results.iter().any(|cell| cell.as_text().is_some()),
         "expected a formula cell with a cached text result"
     );
+    let formula_ids: Vec<u32> = cells.iter().filter_map(|cell| cell.formula_id()).collect();
+    assert!(
+        formula_ids.len() >= 2,
+        "expected cached formula result cells with formula ids, got {formula_ids:?}"
+    );
 
     // Currency cell: decoded as CellValue::Currency with "USD" code.
     let currency = cells.iter().find_map(|c| {

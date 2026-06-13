@@ -439,15 +439,16 @@ Record header *(structurally grounded — verified across multiple real tile arc
 | `9`  | rich text | u32 rich-text-`DataList` key (flag `0x10`) | `Text` | `more_types` rich-text cell |
 | `10` | decimal number variant | decimal128 (flag `0x1`), like type `2` | `Number` or formatted number | currency/formatted columns |
 
-The flag bits still locate the value within the trailing field region. The value-bearing bits (`0x1` decimal128, `0x2` double, `0x4` date, `0x8` string key) occupy the low nibble and precede any format/style/formula references, so the selected value always begins at byte 12. Higher bits (formula id, style ids, number-format id, …) follow but are not needed to recover the value. Flag bit `0x0200` is observed on cached formula result cells; the reader wraps the decoded result as `CellValue::Formula`.
+The flag bits still locate the value within the trailing field region. The value-bearing bits (`0x1` decimal128, `0x2` double, `0x4` date, `0x8` string key) occupy the low nibble and precede any format/style/formula references, so the selected value always begins at byte 12. Higher bits (formula id, style ids, number-format id, …) follow the value. Flag bit `0x0200` is observed on cached formula result cells; when present, the first trailing u32 after the value is preserved as the formula id and the reader wraps the decoded result as `CellValue::Formula`.
 
 Type `10` is decoded as its numeric result and may be refined to `Currency` or
 `Percentage` when the cell's number-format key resolves through the format
 `DataList`. Whether it *always* coincides with a formula or formatted numeric
 reference has not been cross-validated against the formula store yet. The
 formula expression/dependency graph is not decoded yet; only the cached result
-marker is surfaced. A `ver=0x00` "record" only appears when offsets are misread
-inside the pivot table's special storage; the `rec[0] != 0x05` gate rejects it.
+marker and formula id are surfaced. A `ver=0x00` "record" only appears when
+offsets are misread inside the pivot table's special storage; the `rec[0] !=
+0x05` gate rejects it.
 
 Use `cargo run --example dump_cells -- <file> [--limit N]` to dump per-cell `type`/`flags`/payload and the type-byte→flag-mask summary; this is how the table above was derived.
 

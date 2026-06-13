@@ -561,7 +561,9 @@ fn legacy_column_record(column: usize, offset: u16, cell: &CellValue) -> Result<
         CellValue::Number(_) | CellValue::Bool(_) | CellValue::Duration(_)
         | CellValue::Percentage(_) | CellValue::Currency { .. } => 2,
         CellValue::Date(_) => 4,
-        CellValue::Formula(value) => return legacy_column_record(usize::from(column), offset, value),
+        CellValue::Formula { result, .. } => {
+            return legacy_column_record(usize::from(column), offset, result);
+        }
         CellValue::Text(_) => 8,
     };
     Ok(record)
@@ -586,12 +588,15 @@ fn encode_cell_record(cell: &CellValue, strings: &BTreeMap<String, u32>) -> Resu
                 .ok_or(Error::InvalidIwa("missing string datalist key"))?;
             (3u8, 0x8u32, key.to_le_bytes().to_vec())
         }
-        CellValue::Formula(value) => {
-            let mut record = encode_cell_record(value, strings)?;
+        CellValue::Formula { result, formula_id } => {
+            let mut record = encode_cell_record(result, strings)?;
             if record.len() >= 12 {
                 let flags = u32::from_le_bytes([record[8], record[9], record[10], record[11]])
                     | FLAG_FORMULA_RESULT;
                 record[8..12].copy_from_slice(&flags.to_le_bytes());
+                if let Some(id) = formula_id {
+                    record.extend_from_slice(&id.to_le_bytes());
+                }
             }
             return Ok(record);
         }
@@ -625,8 +630,14 @@ mod tests {
         ]);
         table.push_row(vec![
             CellValue::Text("Formula".to_owned()),
-            CellValue::Formula(Box::new(CellValue::Number(7.0))),
-            CellValue::Formula(Box::new(CellValue::Text("cached".to_owned()))),
+            CellValue::Formula {
+                result: Box::new(CellValue::Number(7.0)),
+                formula_id: Some(17),
+            },
+            CellValue::Formula {
+                result: Box::new(CellValue::Text("cached".to_owned())),
+                formula_id: Some(18),
+            },
         ]);
         workbook.add_table(table);
 
@@ -670,8 +681,14 @@ mod tests {
             decoded.rows()[2].cells,
             vec![
                 CellValue::Text("Formula".to_owned()),
-                CellValue::Formula(Box::new(CellValue::Number(7.0))),
-                CellValue::Formula(Box::new(CellValue::Text("cached".to_owned()))),
+                CellValue::Formula {
+                    result: Box::new(CellValue::Number(7.0)),
+                    formula_id: Some(17),
+                },
+                CellValue::Formula {
+                    result: Box::new(CellValue::Text("cached".to_owned())),
+                    formula_id: Some(18),
+                },
             ]
         );
 

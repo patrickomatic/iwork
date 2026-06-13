@@ -61,8 +61,11 @@ pub enum CellValue {
     /// cell carries no recoverable value, only the error state.
     Error,
     /// A formula cell whose expression is not decoded yet, carrying the cached
-    /// result value stored in the tile.
-    Formula(Box<CellValue>),
+    /// result value stored in the tile plus the formula id when present.
+    Formula {
+        result: Box<CellValue>,
+        formula_id: Option<u32>,
+    },
     Number(f64),
     /// A percentage value stored as a decimal fraction (e.g. `0.33` for `33%`).
     Percentage(f64),
@@ -74,7 +77,7 @@ impl CellValue {
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Self::Bool(b) => Some(*b),
-            Self::Formula(value) => value.as_bool(),
+            Self::Formula { result, .. } => result.as_bool(),
             _ => None,
         }
     }
@@ -83,7 +86,7 @@ impl CellValue {
     pub fn as_duration_seconds(&self) -> Option<f64> {
         match self {
             Self::Duration(s) => Some(*s),
-            Self::Formula(value) => value.as_duration_seconds(),
+            Self::Formula { result, .. } => result.as_duration_seconds(),
             _ => None,
         }
     }
@@ -92,7 +95,7 @@ impl CellValue {
     pub fn as_date_seconds(&self) -> Option<f64> {
         match self {
             Self::Date(s) => Some(*s),
-            Self::Formula(value) => value.as_date_seconds(),
+            Self::Formula { result, .. } => result.as_date_seconds(),
             _ => None,
         }
     }
@@ -101,7 +104,7 @@ impl CellValue {
     pub fn as_currency(&self) -> Option<f64> {
         match self {
             Self::Currency { value, .. } => Some(*value),
-            Self::Formula(value) => value.as_currency(),
+            Self::Formula { result, .. } => result.as_currency(),
             _ => None,
         }
     }
@@ -110,7 +113,7 @@ impl CellValue {
     pub fn as_percentage(&self) -> Option<f64> {
         match self {
             Self::Percentage(p) => Some(*p),
-            Self::Formula(value) => value.as_percentage(),
+            Self::Formula { result, .. } => result.as_percentage(),
             _ => None,
         }
     }
@@ -119,7 +122,7 @@ impl CellValue {
     pub fn as_number(&self) -> Option<f64> {
         match self {
             Self::Number(n) => Some(*n),
-            Self::Formula(value) => value.as_number(),
+            Self::Formula { result, .. } => result.as_number(),
             _ => None,
         }
     }
@@ -128,15 +131,24 @@ impl CellValue {
     pub fn as_text(&self) -> Option<&str> {
         match self {
             Self::Text(s) => Some(s),
-            Self::Formula(value) => value.as_text(),
+            Self::Formula { result, .. } => result.as_text(),
             _ => None,
         }
     }
 
     /// Returns the cached result for formula cells.
     pub fn formula_result(&self) -> Option<&CellValue> {
-        if let Self::Formula(value) = self {
-            Some(value)
+        if let Self::Formula { result, .. } = self {
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the formula id attached to a cached formula-result cell, if present.
+    pub fn formula_id(&self) -> Option<u32> {
+        if let Self::Formula { formula_id, .. } = self {
+            *formula_id
         } else {
             None
         }
@@ -504,7 +516,10 @@ fn decode_cell_record(
             let Some(v) = value else {
                 return CellValue::Empty;
             };
-            // Trailing u32s: cell_style_key (bit 12), then numfmt_key (bits 13/14/16).
+            // Trailing u32s include formula/style/format references. The first
+            // u32 after the value is the formula id when bit 9 is set; formatted
+            // numeric cells still place the numfmt key in the second u32 when a
+            // preceding formula/style reference exists.
             let after_value = &body[value_len.min(body.len())..];
             let numfmt_key = if flags & FLAG_CELL_STYLE != 0 && flags & FLAG_NUMFMT != 0 {
                 after_value
@@ -546,10 +561,33 @@ fn decode_cell_record(
     };
 
     if flags & FLAG_FORMULA_RESULT != 0 && !matches!(value, CellValue::Empty) {
-        CellValue::Formula(Box::new(value))
+        CellValue::Formula {
+            formula_id: formula_id_from_record(cell_type, flags, body),
+            result: Box::new(value),
+        }
     } else {
         value
     }
+}
+
+fn formula_id_from_record(cell_type: u8, flags: u32, body: &[u8]) -> Option<u32> {
+    if flags & FLAG_FORMULA_RESULT == 0 {
+        return None;
+    }
+    let value_len = match cell_type {
+        CELL_TYPE_NUMBER | CELL_TYPE_NUMBER_ALT => {
+            if flags & 0x1 != 0 {
+                16
+            } else {
+                8
+            }
+        }
+        CELL_TYPE_BOOL | CELL_TYPE_DATE | CELL_TYPE_DURATION => 8,
+        CELL_TYPE_TEXT | CELL_TYPE_RICH_TEXT => 4,
+        _ => return None,
+    };
+    body.get(value_len..value_len + 4)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 
 /// Reads a little-endian `f64` from the start of `body`, if 8 bytes are present.
@@ -590,8 +628,14 @@ mod tests {
         let number = decode_cell_record(&double_record(CELL_TYPE_NUMBER, 0x2, 42.5), &strings, &empty_rich, &HashMap::new());
         assert_eq!(number, CellValue::Number(42.5));
 
-        let formula = decode_cell_record(&double_record(CELL_TYPE_NUMBER, 0x202, 42.5), &strings, &empty_rich, &HashMap::new());
+        let formula = decode_cell_record(
+            &double_record_bytes(CELL_TYPE_NUMBER, 0x202, &[0, 0, 0, 0, 0, 64, 69, 64, 17, 0, 0, 0]),
+            &strings,
+            &empty_rich,
+            &HashMap::new(),
+        );
         assert_eq!(formula.formula_result(), Some(&CellValue::Number(42.5)));
+        assert_eq!(formula.formula_id(), Some(17));
         assert_eq!(formula.as_number(), Some(42.5));
 
         let decimal =
