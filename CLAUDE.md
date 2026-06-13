@@ -63,11 +63,11 @@ The Numbers reader has an evidence-backed table path:
 - `Spreadsheet::table_models()` decodes `TableModel` objects from `Index/CalculationEngine.iwa` (with `Document.iwa` fallback), including table UUID, name, row/column counts, header row/column counts, tile ids, header storage bucket ids, and DataList references.
 - `Spreadsheet::decoded_tables()` is the authoritative table view: it follows each model's tiles and scoped DataLists, merges multi-tile row ranges, and avoids cross-table string-key collisions.
 - `Spreadsheet::header_storage_bucket()` decodes type-6006 `HeaderStorageBucket` archives structurally. Each table model references a row-indexed bucket via `DataStore.field 1.2` and a column-indexed bucket via `DataStore.field 2`; entry fields 2-4 are still raw structural fields.
-- Cell decoding currently covers `Empty`, plain text, rich text, numbers/decimal128, dates, booleans, durations, formula errors, cached formula results (`CellValue::Formula`), currency, and percentages.
+- Cell decoding currently covers `Empty`, plain text, rich text, numbers/decimal128, dates, booleans, durations, formula errors, cached formula results with formula ids (`CellValue::Formula`), currency, and percentages.
 
 Known Numbers gaps:
 
-- Formula expressions/dependency graph are not decoded; formula result cells preserve the formula-result marker and surface their cached value through `CellValue::Formula`.
+- Formula expressions/dependency graph are not decoded; formula result cells preserve the formula-result marker, formula id, and cached value through `CellValue::Formula`.
 - Header storage bucket axis roles are decoded, but layout semantics for entry fields 2-4 are not fully cross-validated.
 - Pivot table semantics are not modeled beyond normal sheet/table object membership and decoded cell values.
 - Writer output is crate-readable but still not guaranteed to open in Apple Numbers because the full document/table object graph, view state, styles, and calculation metadata are incomplete.

@@ -62,7 +62,10 @@ fn display_cell(cell: &CellValue) -> String {
         CellValue::Bool(value) => format!("bool:{value}"),
         CellValue::Duration(value) => format!("dur:{value}s"),
         CellValue::Error => "<error>".to_owned(),
-        CellValue::Formula(value) => format!("formula:{}", display_cell(value)),
+        CellValue::Formula { result, formula_id } => formula_id.map_or_else(
+            || format!("formula:{}", display_cell(result)),
+            |id| format!("formula#{id}:{}", display_cell(result)),
+        ),
         CellValue::Text(value) => value.clone(),
         CellValue::Number(value) => format!("{value}"),
         CellValue::Percentage(value) => format!("{:.1}%", value * 100.0),
