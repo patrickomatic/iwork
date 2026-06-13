@@ -117,6 +117,29 @@ fn pages_exposes_template_name() -> Result<(), Error> {
 }
 
 #[test]
+fn pages_exposes_media_descriptions() -> Result<(), Error> {
+    let body = pages::Document::open("examples/pages/term_paper.pages")?.document()?;
+    let media = body.media_descriptions();
+    assert!(
+        media.contains(&"blue sky viewed through a gap between canyon rocks".to_owned()),
+        "expected canyon rocks description, got: {media:?}"
+    );
+    assert!(
+        media.contains(&"sandstone buttes in Monument Valley under a partly cloudy sky".to_owned()),
+        "expected Monument Valley description, got: {media:?}"
+    );
+
+    let body = pages::Document::open("examples/pages/modern_novel.pages")?.document()?;
+    let media = body.media_descriptions();
+    assert!(
+        media.contains(&"evergreen trees under a starry night sky".to_owned()),
+        "expected starry night sky description, got: {media:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn keynote_exposes_theme_name() -> Result<(), Error> {
     let expected = [
         ("examples/keynote/basic_white.key", "21_BasicWhite"),
