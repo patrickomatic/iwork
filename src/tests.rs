@@ -616,6 +616,12 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         "every type-4008 formula record should expose field 7/8 bounds"
     );
     assert!(
+        formula_records
+            .iter()
+            .all(|record| record.record_key().field1() > 0 || record.record_key().field2() > 0),
+        "every type-4008 formula record should expose a populated field-1 key"
+    );
+    assert!(
         formula_records.iter().any(|record| {
             record
                 .field7_bounds()

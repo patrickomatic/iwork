@@ -30,7 +30,7 @@ mod write;
 
 pub use formula::{
     FormulaAuxiliaryEntry, FormulaAuxiliaryEntryPayload, FormulaAuxiliaryRecord, FormulaBounds,
-    FormulaBoundsPair, FormulaRecord,
+    FormulaBoundsPair, FormulaRecord, FormulaRecordKey,
 };
 pub use header_storage::{HeaderStorageBucket, HeaderStorageEntry};
 pub use sheet::Sheet;
