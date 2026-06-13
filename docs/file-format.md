@@ -364,6 +364,10 @@ the first decoded join point between tile cells and the formula graph:
   trailing fields when flag `0x0200` is set.
 - Field 3: raw formula-kind/classifier varint. Expression semantics are not
   decoded yet.
+- Fields 7 and 8: each contains two nested four-varint bounds records. Most
+  records use sentinel maxima `(32767, 2147483647, 32767, 2147483647)`; a
+  subset carries concrete bounds. Their exact formula-graph role is not named
+  yet, so the API exposes them as raw `FormulaBoundsPair` values.
 
 `Spreadsheet::formula_records()` exposes these records, and
 `Spreadsheet::formula_record(id)` resolves formula ids that have a matching
