@@ -609,6 +609,20 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
     let record = joined_formula.ok_or(Error::InvalidIwa("missing joined formula record"))?;
     assert!(formula_ids.contains(&record.formula_id()));
     assert!(record.object_id() > 0);
+    assert!(
+        formula_records
+            .iter()
+            .all(|record| record.field7_bounds().is_some() && record.field8_bounds().is_some()),
+        "every type-4008 formula record should expose field 7/8 bounds"
+    );
+    assert!(
+        formula_records.iter().any(|record| {
+            record
+                .field7_bounds()
+                .is_some_and(|bounds| !bounds.primary().is_sentinel())
+        }),
+        "expected at least one concrete formula bounds record"
+    );
 
     // Currency cell: decoded as CellValue::Currency with "USD" code.
     let currency = cells.iter().find_map(|c| {
