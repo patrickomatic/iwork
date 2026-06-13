@@ -386,8 +386,9 @@ is:
 
 - Fields 1, 2, and 3: raw varints present on every type-4009 record.
 - Field 4: repeated entry message. Entry fields 1 and 2 are raw varints present
-  on every entry. Entry field 6 is high-confidence length-delimited data but
-  remains opaque in the library until its role is corroborated.
+  on every entry. Entry field 6 is high-confidence length-delimited data; when
+  it decodes as the observed nested two-varint message, the API exposes it as
+  `FormulaAuxiliaryEntryPayload`.
 
 `Spreadsheet::formula_auxiliary_records()` exposes these records, and
 `Spreadsheet::formula_auxiliary_record(id)` resolves the object ids carried by

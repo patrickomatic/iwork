@@ -25,6 +25,9 @@ const AUX_FIELD_3: u32 = 3;
 const AUX_FIELD_ENTRIES: u32 = 4;
 const AUX_ENTRY_FIELD_1: u32 = 1;
 const AUX_ENTRY_FIELD_2: u32 = 2;
+const AUX_ENTRY_FIELD_PAYLOAD: u32 = 6;
+const AUX_PAYLOAD_FIELD_1: u32 = 1;
+const AUX_PAYLOAD_FIELD_2: u32 = 2;
 
 /// A decoded formula record from `Index/CalculationEngine.iwa`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,6 +192,7 @@ impl FormulaAuxiliaryRecord {
 pub struct FormulaAuxiliaryEntry {
     field1: u64,
     field2: u64,
+    payload: Option<FormulaAuxiliaryEntryPayload>,
 }
 
 impl FormulaAuxiliaryEntry {
@@ -200,6 +204,7 @@ impl FormulaAuxiliaryEntry {
             field2: message
                 .field(AUX_ENTRY_FIELD_2)
                 .and_then(|field| field.value.as_varint())?,
+            payload: decode_auxiliary_entry_payload(message),
         })
     }
 
@@ -209,6 +214,31 @@ impl FormulaAuxiliaryEntry {
     }
 
     /// Raw entry field 2.
+    pub fn field2(&self) -> u64 {
+        self.field2
+    }
+
+    /// Optional decoded field-6 payload for entries whose payload is a nested
+    /// protobuf message with the known two-varint shape.
+    pub fn payload(&self) -> Option<&FormulaAuxiliaryEntryPayload> {
+        self.payload.as_ref()
+    }
+}
+
+/// Decoded nested field-6 payload from a formula auxiliary entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormulaAuxiliaryEntryPayload {
+    field1: u64,
+    field2: u64,
+}
+
+impl FormulaAuxiliaryEntryPayload {
+    /// Raw payload field 1.
+    pub fn field1(&self) -> u64 {
+        self.field1
+    }
+
+    /// Raw payload field 2.
     pub fn field2(&self) -> u64 {
         self.field2
     }
@@ -294,6 +324,23 @@ fn decode_bounds(message: &ProtoMessage, field_number: u32) -> Option<FormulaBou
         second: bounds.field(2).and_then(|field| field.value.as_varint())?,
         third: bounds.field(3).and_then(|field| field.value.as_varint())?,
         fourth: bounds.field(4).and_then(|field| field.value.as_varint())?,
+    })
+}
+
+fn decode_auxiliary_entry_payload(
+    message: &ProtoMessage,
+) -> Option<FormulaAuxiliaryEntryPayload> {
+    let payload = message
+        .field(AUX_ENTRY_FIELD_PAYLOAD)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(|bytes| ProtoMessage::decode(bytes).ok())?;
+    Some(FormulaAuxiliaryEntryPayload {
+        field1: payload
+            .field(AUX_PAYLOAD_FIELD_1)
+            .and_then(|field| field.value.as_varint())?,
+        field2: payload
+            .field(AUX_PAYLOAD_FIELD_2)
+            .and_then(|field| field.value.as_varint())?,
     })
 }
 
