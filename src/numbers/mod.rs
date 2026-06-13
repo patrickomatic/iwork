@@ -19,6 +19,7 @@ use std::path::Path;
 use crate::package::Package;
 use crate::{DocumentKind, Error, InspectionReport};
 
+mod formula;
 mod header_storage;
 mod sheet;
 mod spreadsheet;
@@ -27,6 +28,7 @@ mod table_model;
 mod types;
 mod write;
 
+pub use formula::FormulaRecord;
 pub use header_storage::{HeaderStorageBucket, HeaderStorageEntry};
 pub use sheet::Sheet;
 pub use spreadsheet::{Spreadsheet, TableArchive};

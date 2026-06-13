@@ -64,12 +64,13 @@ The Numbers reader has an evidence-backed table path:
 - `Spreadsheet::sheets()` decodes `Sheet` objects from `Index/Document.iwa`, with field 1 as the sheet name and field 2 filtered to `TableInfo` references, then resolved through `TableInfo -> TableModel`.
 - `Spreadsheet::table_models()` decodes `TableModel` objects from `Index/CalculationEngine.iwa` (with `Document.iwa` fallback), including table UUID, name, row/column counts, header row/column counts, tile ids, header storage bucket ids, and DataList references.
 - `Spreadsheet::decoded_tables()` is the authoritative table view: it follows each model's tiles and scoped DataLists, merges multi-tile row ranges, and avoids cross-table string-key collisions.
+- `Spreadsheet::formula_records()` decodes type-4008 formula records from `Index/CalculationEngine.iwa`; record field 2 matches formula ids stored on some formula-result cells.
 - `Spreadsheet::header_storage_bucket()` decodes type-6006 `HeaderStorageBucket` archives structurally. Each table model references a row-indexed bucket via `DataStore.field 1.2` and a column-indexed bucket via `DataStore.field 2`; entry fields 2-4 are still raw structural fields.
 - Cell decoding currently covers `Empty`, plain text, rich text, numbers/decimal128, dates, booleans, durations, formula errors, cached formula results with formula ids (`CellValue::Formula`), currency, and percentages.
 
 Known Numbers gaps:
 
-- Formula expressions/dependency graph are not decoded; formula result cells preserve the formula-result marker, formula id, and cached value through `CellValue::Formula`.
+- Formula expressions/dependency graph are not decoded; formula result cells preserve the formula-result marker, formula id, and cached value through `CellValue::Formula`, and some formula ids resolve to type-4008 `FormulaRecord` objects.
 - Header storage bucket axis roles are decoded, but layout semantics for entry fields 2-4 are not fully cross-validated.
 - Pivot table semantics are not modeled beyond normal sheet/table object membership and decoded cell values.
 - Writer output is crate-readable but still not guaranteed to open in Apple Numbers because the full document/table object graph, view state, styles, and calculation metadata are incomplete.
@@ -85,16 +86,16 @@ The example files in `examples/` contain arbitrary user data. Never use the actu
 
 ### Reverse-Engineering Tooling
 
-Do format investigation with the committed tools, **not throwaway scripts**. `protorev` (https://github.com/patrickomatic/protorev, consumed as an external dev-dependency) is the protobuf reverse-engineering workbench; the `iwork` examples decode the IWA/Snappy framing and feed raw object payloads to it. Don't hand-roll protobuf wire decoding or shape inference in examples — delegate to `protorev`.
+Do format investigation with the committed tools, **not throwaway scripts**. `protorev` (https://github.com/patrickomatic/protorev, consumed by the `iwork-workbench` package) is the protobuf reverse-engineering workbench; the workbench binaries decode the IWA/Snappy framing and feed raw object payloads to it. Don't hand-roll protobuf wire decoding or shape inference in examples — delegate to `protorev`.
 
-- `cargo run --example dump_iwa_graph -- <file>` / `diff_iwa_graph -- <a> <b>` — IWA framing + object-stream overview; per-archive shape and diff come from a `protorev` `Corpus`.
-- `cargo run --example inspect_numbers -- <file> [name-filter]` — per-object protobuf dump via `protorev::dump_message`.
-- `cargo run --example iwa_corpus -- {schema|infer|explain|values|diff} <type> [<field.path>] <file>...` — runs `protorev`'s full feature set over every object of one message type (`<type>` is an iWork message-type id; `<field.path>` is a dotted path like `4.3`).
-- `cargo run --example iwa_corpus -- experiments <type> <manifest.protorev>` — runs a multi-experiment before/after diff from a `.protorev` manifest file. The manifest lists iWork package paths (not raw `.pb` files); this is the right tool for controlled one-variable investigations (e.g. "same slide, different layout").
-- `cargo run --example iwa_refs -- {types|edges|refs} ... <file>...` — cross-object reference graph (object-graph level; not something `protorev` covers).
-- `cargo run --example dump_cells -- <file> [--limit N]` — wide-cell record dump (type byte / flags / payload) for table tiles, plus a type-byte→flag-mask summary. Interprets the opaque field-6 cell buffer, which `protorev` cannot see into; protobuf framing is still delegated to `ProtoMessage`.
+- `cargo run -p iwork-workbench --bin dump_iwa_graph -- <file>` / `diff_iwa_graph -- <a> <b>` — IWA framing + object-stream overview; per-archive shape and diff come from a `protorev` `Corpus`.
+- `cargo run -p iwork-workbench --bin inspect_numbers -- <file> [name-filter]` — per-object protobuf dump via `protorev::dump_message`.
+- `cargo run -p iwork-workbench --bin iwa_corpus -- {schema|infer|explain|values|diff} <type> [<field.path>] <file>...` — runs `protorev`'s full feature set over every object of one message type (`<type>` is an iWork message-type id; `<field.path>` is a dotted path like `4.3`).
+- `cargo run -p iwork-workbench --bin iwa_corpus -- experiments <type> <manifest.protorev>` — runs a multi-experiment before/after diff from a `.protorev` manifest file. The manifest lists iWork package paths (not raw `.pb` files); this is the right tool for controlled one-variable investigations (e.g. "same slide, different layout").
+- `cargo run -p iwork-workbench --bin iwa_refs -- {types|edges|refs} ... <file>...` — cross-object reference graph (object-graph level; not something `protorev` covers).
+- `cargo run -p iwork-workbench --bin dump_cells -- <file> [--limit N]` — wide-cell record dump (type byte / flags / payload) for table tiles, plus a type-byte→flag-mask summary. Interprets the opaque field-6 cell buffer, which `protorev` cannot see into; protobuf framing is still delegated to `ProtoMessage`.
 
-Boundaries: `protorev` is a `[dev-dependencies]` of `iwork`, used only by examples — the library never depends on it. `src/protobuf.rs` remains the production decoder.
+Boundaries: `protorev` is a dependency of the `iwork-workbench` package; the library never depends on it. `src/protobuf.rs` remains the production decoder.
 
 `protorev`'s confidence gating encodes the structural-vs-data-inferred rule above: a field observed in every relevant sample is `high` confidence; a sparsely observed one stays `medium`/`low` until corroborated across controlled fixtures. Promote a field into parser/writer behavior only once the evidence is `high` or cross-validated independently (e.g. tile-decoded geometry matching a declared count).
 

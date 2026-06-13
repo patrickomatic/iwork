@@ -544,9 +544,8 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
     use crate::numbers::CellValue;
 
     const MORE_TYPES: &str = "examples/numbers/more_types.numbers";
-    let decoded = numbers::Document::open(MORE_TYPES)?
-        .spreadsheet()?
-        .decoded_tables();
+    let spreadsheet = numbers::Document::open(MORE_TYPES)?.spreadsheet()?;
+    let decoded = spreadsheet.decoded_tables();
     let cells: Vec<&CellValue> = decoded
         .iter()
         .flat_map(|(_, table)| table.rows())
@@ -599,6 +598,17 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         formula_ids.len() >= 2,
         "expected cached formula result cells with formula ids, got {formula_ids:?}"
     );
+    let formula_records = spreadsheet.formula_records();
+    assert!(
+        !formula_records.is_empty(),
+        "expected type-4008 formula records in the CalculationEngine"
+    );
+    let joined_formula = formula_ids
+        .iter()
+        .find_map(|formula_id| spreadsheet.formula_record(*formula_id));
+    let record = joined_formula.ok_or(Error::InvalidIwa("missing joined formula record"))?;
+    assert!(formula_ids.contains(&record.formula_id()));
+    assert!(record.object_id() > 0);
 
     // Currency cell: decoded as CellValue::Currency with "USD" code.
     let currency = cells.iter().find_map(|c| {
