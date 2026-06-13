@@ -17,12 +17,14 @@ use std::path::Path;
 
 use crate::{DocumentKind, Error, InspectionReport, Package};
 
+mod sheet;
 mod spreadsheet;
 mod table;
 mod table_model;
 mod types;
 mod write;
 
+pub use sheet::Sheet;
 pub use spreadsheet::{Spreadsheet, TableArchive};
 pub use table::{CellValue, Table, TableRow};
 pub use table_model::TableModel;
