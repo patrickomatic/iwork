@@ -17,6 +17,7 @@ use std::path::Path;
 
 use crate::{DocumentKind, Error, InspectionReport, Package};
 
+mod header_storage;
 mod sheet;
 mod spreadsheet;
 mod table;
@@ -24,6 +25,7 @@ mod table_model;
 mod types;
 mod write;
 
+pub use header_storage::{HeaderStorageBucket, HeaderStorageEntry};
 pub use sheet::Sheet;
 pub use spreadsheet::{Spreadsheet, TableArchive};
 pub use table::{CellValue, Table, TableRow};

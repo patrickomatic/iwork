@@ -20,6 +20,13 @@ const FIELD_HEADER_COLUMNS: u32 = 10;
 
 /// `TableModel.field 4` holds the `DataStore` (the table's storage references).
 const FIELD_DATA_STORE: u32 = 4;
+/// `DataStore.field 1` carries one header storage reference at nested field 2.
+/// Together with `DataStore.field 2`, these are the two
+/// `HeaderStorageBucket` references each table model carries.
+const STORE_FIELD_HEADER_STORAGE_GROUP: u32 = 1;
+const HEADER_STORAGE_GROUP_REFERENCE: u32 = 2;
+/// `DataStore.field 2` carries the second `HeaderStorageBucket` reference.
+const STORE_FIELD_HEADER_STORAGE: u32 = 2;
 /// `DataStore.field 3` holds the `TileStorage` (the table's data tiles).
 const STORE_FIELD_TILES: u32 = 3;
 /// `DataStore.field 4` references the `DataList` of cell strings (validated:
@@ -65,6 +72,7 @@ pub struct TableModel {
     string_data_list_id: Option<u64>,
     rich_text_data_list_id: Option<u64>,
     cell_format_data_list_id: Option<u64>,
+    header_storage_bucket_ids: Vec<u64>,
 }
 
 impl TableModel {
@@ -119,10 +127,14 @@ impl TableModel {
             string_data_list_id: data_store.as_ref().and_then(decode_string_data_list_id),
             rich_text_data_list_id: data_store
                 .as_ref()
-                .and_then(|ds| decode_data_list_id(ds, STORE_FIELD_RICH_TEXT)),
+                .and_then(|ds| decode_reference_id(ds, STORE_FIELD_RICH_TEXT)),
             cell_format_data_list_id: data_store
                 .as_ref()
-                .and_then(|ds| decode_data_list_id(ds, STORE_FIELD_FORMATS)),
+                .and_then(|ds| decode_reference_id(ds, STORE_FIELD_FORMATS)),
+            header_storage_bucket_ids: data_store
+                .as_ref()
+                .map(decode_header_storage_bucket_ids)
+                .unwrap_or_default(),
         })
     }
 
@@ -200,6 +212,13 @@ impl TableModel {
     pub(crate) fn cell_format_data_list_id(&self) -> Option<u64> {
         self.cell_format_data_list_id
     }
+
+    /// Identifiers of the table's `HeaderStorageBucket` objects. There are
+    /// usually two per table model; their internal entry semantics are still
+    /// exposed structurally through [`crate::numbers::HeaderStorageBucket`].
+    pub fn header_storage_bucket_ids(&self) -> &[u64] {
+        &self.header_storage_bucket_ids
+    }
 }
 
 /// Extracts the table's tiles from a `DataStore` as `(row_offset, tile_id)` pairs
@@ -255,11 +274,27 @@ fn decode_tiles(data_store: &ProtoMessage) -> Vec<(u32, u64)> {
 
 /// Extracts the cell-string `DataList` identifier from a `DataStore`.
 fn decode_string_data_list_id(data_store: &ProtoMessage) -> Option<u64> {
-    decode_data_list_id(data_store, STORE_FIELD_STRINGS)
+    decode_reference_id(data_store, STORE_FIELD_STRINGS)
 }
 
-/// Extracts a `DataList` object identifier from a named `DataStore` field.
-fn decode_data_list_id(data_store: &ProtoMessage, field: u32) -> Option<u64> {
+fn decode_header_storage_bucket_ids(data_store: &ProtoMessage) -> Vec<u64> {
+    let mut ids = Vec::new();
+    if let Some(id) = data_store
+        .field(STORE_FIELD_HEADER_STORAGE_GROUP)
+        .and_then(|f| f.value.as_bytes())
+        .and_then(|bytes| ProtoMessage::decode(bytes).ok())
+        .and_then(|group| decode_reference_id(&group, HEADER_STORAGE_GROUP_REFERENCE))
+    {
+        ids.push(id);
+    }
+    if let Some(id) = decode_reference_id(data_store, STORE_FIELD_HEADER_STORAGE) {
+        ids.push(id);
+    }
+    ids
+}
+
+/// Extracts an object identifier from a named reference field.
+fn decode_reference_id(data_store: &ProtoMessage, field: u32) -> Option<u64> {
     data_store
         .field(field)
         .and_then(|f| f.value.as_bytes())
