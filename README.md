@@ -173,8 +173,9 @@ The Numbers reader currently follows a two-stage model:
 - `Spreadsheet::decoded_tables()` follows each model's `DataStore` to its tiles
   and string / rich-text / format lists, returning one `(TableModel, Table)` per
   real table with cells resolved per-table (no cross-table string-key collisions)
-- `TableModel::header_storage_bucket_ids()` and
-  `Spreadsheet::header_storage_bucket()` expose the two structurally decoded
+- `TableModel::row_header_storage_bucket_id()`,
+  `TableModel::column_header_storage_bucket_id()`, and
+  `Spreadsheet::header_storage_bucket()` expose the row- and column-indexed
   `HeaderStorageBucket` objects referenced by each table model
 - `Spreadsheet::table_archives()` exposes the raw `Index/Tables/*.iwa` archives
 - `Spreadsheet::tables()` resolves those archives into decoded rows and [`CellValue`](src/numbers/table.rs) values (lower-level; one entry per tile)
