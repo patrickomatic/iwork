@@ -634,6 +634,15 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
             .any(|record| !record.entries().is_empty()),
         "expected at least one formula auxiliary record with entries"
     );
+    assert!(
+        auxiliary_records.iter().any(|record| {
+            record
+                .entries()
+                .iter()
+                .any(|entry| entry.payload().is_some())
+        }),
+        "expected at least one decoded formula auxiliary entry payload"
+    );
     let auxiliary_id = formula_records
         .iter()
         .flat_map(|record| record.auxiliary_record_ids())

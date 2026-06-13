@@ -29,7 +29,8 @@ mod types;
 mod write;
 
 pub use formula::{
-    FormulaAuxiliaryEntry, FormulaAuxiliaryRecord, FormulaBounds, FormulaBoundsPair, FormulaRecord,
+    FormulaAuxiliaryEntry, FormulaAuxiliaryEntryPayload, FormulaAuxiliaryRecord, FormulaBounds,
+    FormulaBoundsPair, FormulaRecord,
 };
 pub use header_storage::{HeaderStorageBucket, HeaderStorageEntry};
 pub use sheet::Sheet;
