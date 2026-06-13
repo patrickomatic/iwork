@@ -9,6 +9,18 @@ use crate::{Error, Package};
 /// invariant (not dependent on document content).
 const THEME_TYPE: u64 = 10;
 
+/// Message type of a Keynote drawable/placeholder object.
+///
+/// - `field 2` (varint): placeholder kind — 1=notes, 2=title, 3=body.
+///   Validated across all real slides in with_content.key; invariant across
+///   slides with different layouts (title-only, title+body, quote, image).
+/// - `field 1.4.1` (varint): object ID of the associated type-2001 text store.
+///   Confirmed by correlating decoded IDs with known 2001 objects per slide.
+const DRAWABLE_TYPE: u64 = 7;
+
+/// `field 2` value in a type-7 drawable that identifies the title placeholder.
+const PLACEHOLDER_TITLE: u64 = 2;
+
 /// Message type of a TSWP text storage object.
 ///
 /// field 3 (bytes): raw UTF-8 slide text; `\n` = paragraph break, TSWP block
@@ -89,6 +101,54 @@ fn decode_theme_name(package: &Package) -> Result<Option<String>, Error> {
     Ok(name)
 }
 
+/// Decodes the slide title from type-7 drawable objects.
+///
+/// Finds the type-7 with `field 2 == PLACEHOLDER_TITLE (2)`, follows its
+/// `field 1.4.1` reference to the associated type-2001, and reads field 3.
+fn decode_slide_title(archive: &IwaArchive) -> Option<String> {
+    // Build a map from 2001 object ID → text so we can look up by reference.
+    let text_by_id: std::collections::HashMap<u64, String> = archive
+        .objects()
+        .iter()
+        .filter(|o| o.message_type == Some(TSWP_TEXT_TYPE))
+        .filter_map(|o| {
+            let id = o.identifier?;
+            let raw = ProtoMessage::decode(&o.payload)
+                .ok()
+                .and_then(|m| m.field(3).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|b| String::from_utf8(b).ok())?;
+            let text: String = raw
+                .split(|c: char| c.is_control() && c != '\n')
+                .flat_map(|s| s.split('\n'))
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if text.is_empty() { None } else { Some((id, text)) }
+        })
+        .collect();
+
+    // Find the title drawable and look up its 2001 text.
+    archive
+        .objects()
+        .iter()
+        .filter(|o| o.message_type == Some(DRAWABLE_TYPE))
+        .find_map(|o| {
+            let msg = ProtoMessage::decode(&o.payload).ok()?;
+            let kind = msg.field(2)?.value.as_varint()?;
+            if kind != PLACEHOLDER_TITLE {
+                return None;
+            }
+            let ref_id = msg
+                .field(1).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                .and_then(|b| ProtoMessage::decode(&b).ok())
+                .and_then(|m| m.field(4).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|b| ProtoMessage::decode(&b).ok())
+                .and_then(|m| m.field(1).and_then(|f| f.value.as_varint()))?;
+            text_by_id.get(&ref_id).cloned()
+        })
+}
+
 /// Decodes text from TSWP text storage objects (type-2001) in a slide archive.
 ///
 /// Each type-2001 object carries its text in `field 3` as raw UTF-8, with `\n`
@@ -111,7 +171,7 @@ fn decode_tswp_text(archive: &IwaArchive) -> Vec<String> {
             .split(|c: char| c.is_control() && c != '\n')
             .flat_map(|seg| seg.split('\n'))
             .map(str::trim)
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.is_empty() && !s.contains('\u{FFFC}'))
         {
             if seen.insert(fragment.to_owned()) {
                 fragments.push(fragment.to_owned());
@@ -154,6 +214,7 @@ pub struct Slide {
 
 impl Slide {
     fn from_archive(path: String, archive: &IwaArchive) -> Self {
+        let title = decode_slide_title(archive);
         let text_fragments = decode_tswp_text(archive);
         let media_descriptions = decode_media_descriptions(archive);
 
@@ -163,7 +224,7 @@ impl Slide {
             media_descriptions,
             path,
             text_fragments,
-            title: None,
+            title,
         }
     }
 

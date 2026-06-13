@@ -260,6 +260,39 @@ fn pages_exposes_text_fragments() -> Result<(), Error> {
 }
 
 #[test]
+fn keynote_slides_expose_title() -> Result<(), Error> {
+    let presentation =
+        keynote::Document::open("examples/keynote/with_content.key")?.presentation()?;
+    let slides: Vec<_> = presentation.slides().iter().filter(|s| !s.is_template()).collect();
+
+    let title_slide = slides
+        .iter()
+        .find(|s| s.title() == Some("This is a presentation title"))
+        .expect("with_content.key should have title slide");
+    assert!(
+        title_slide.text_fragments().contains(&"By Mr Author".to_owned()),
+        "title slide text_fragments should include author line"
+    );
+
+    let content_slide = slides
+        .iter()
+        .find(|s| s.title() == Some("This is a slide title"))
+        .expect("with_content.key should have a content slide with title");
+    assert!(
+        !content_slide.text_fragments().is_empty(),
+        "content slide should have text_fragments"
+    );
+
+    // Image-only slides have no title
+    assert!(
+        slides.iter().any(|s| s.title().is_none()),
+        "some slides should have no title"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn keynote_slides_expose_text_fragments() -> Result<(), Error> {
     let presentation =
         keynote::Document::open("examples/keynote/with_content.key")?.presentation()?;
