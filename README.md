@@ -4,22 +4,25 @@
 
 ## What This Crate Does
 
-- opens iWork packages as ZIP containers
-- exposes package entries and raw entry bytes
-- can write stored ZIP packages and encode protobuf / IWA payloads
-- reads `Metadata/Properties.plist`
-- reads Numbers sheets, table models, and table cell values — text, rich text,
-  numbers (decimal128), dates, booleans, durations, errors, cached formula
-  results with formula ids, currency, and percentages
-- can build Numbers table archives from scratch for scalar cell data
-- inspects `Index/DocumentStylesheet.iwa` for simple keyword signals
-- extracts UTF-8 string fields from Pages documents and Keynote decks
+**Numbers** (`.numbers`)
+- sheet names and table membership (`Sheet`, `TableModel`)
+- cell values: text, rich text, numbers (decimal128), dates, booleans, durations,
+  errors, cached formula results with formula ids, currency, percentages
+- table geometry (row/column counts, header rows/columns)
+- write support: build minimal `.numbers` files from scalar cell data
 
-## Current Guarantees
+**Pages** (`.pages`)
+- document template name
+- all text fragments from the body (TSWP storage, paragraphs split and cleaned)
+- image alt-text (media descriptions)
 
-- `Document::open` accepts any supported iWork package
-- `numbers::Document`, `pages::Document`, and `keynote::Document` enforce the expected file extension
-- fixture coverage exists for Numbers, Pages, and Keynote examples in `examples/`
+**Keynote** (`.key`)
+- presentation theme name
+- per-slide: title, text fragments, image alt-text, template vs. content distinction
+
+**All formats**
+- document UUID and file-format version from `Metadata/Properties.plist`
+- document kind detection from file extension
 
 ## Usage
 
@@ -38,22 +41,6 @@ fn main() -> Result<(), iwork::Error> {
         report.properties.file_format_version.as_deref().unwrap_or("<unknown>")
     );
 
-    Ok(())
-}
-```
-
-You can also work at the package level:
-
-```rust
-use iwork::Document;
-
-fn main() -> Result<(), iwork::Error> {
-    let document = Document::open("examples/pages/modern_novel.pages")?;
-    let stylesheet = document
-        .package()
-        .entry_bytes("Index/DocumentStylesheet.iwa")?;
-
-    println!("stylesheet bytes: {}", stylesheet.len());
     Ok(())
 }
 ```
@@ -164,37 +151,22 @@ fn main() -> Result<(), iwork::Error> {
 
 ## Numbers Parsing Notes
 
-The Numbers reader currently follows a two-stage model:
+The Numbers API surface:
 
-- `Spreadsheet::table_models()` decodes each table's name and grid geometry from
-  its `TableModel` object (the authoritative table list)
-- `Spreadsheet::sheets()` decodes sheet names and resolves sheet membership from
-  `Sheet -> TableInfo -> TableModel`
-- `Spreadsheet::decoded_tables()` follows each model's `DataStore` to its tiles
-  and string / rich-text / format lists, returning one `(TableModel, Table)` per
-  real table with cells resolved per-table (no cross-table string-key collisions)
-- `TableModel::row_header_storage_bucket_id()`,
-  `TableModel::column_header_storage_bucket_id()`, and
-  `Spreadsheet::header_storage_bucket()` expose the row- and column-indexed
-  `HeaderStorageBucket` objects referenced by each table model
-- `Spreadsheet::table_archives()` exposes the raw `Index/Tables/*.iwa` archives
-- `Spreadsheet::tables()` resolves those archives into decoded rows and [`CellValue`](src/numbers/table.rs) values (lower-level; one entry per tile)
+- `Spreadsheet::sheets()` — sheet names and which tables each sheet contains
+- `Spreadsheet::table_models()` — authoritative table list with name and geometry (row/column counts, header counts)
+- `Spreadsheet::decoded_tables()` — one `(TableModel, Table)` per real table; cells resolved per-table so string keys never collide across tables
+- `Spreadsheet::formula_records()` — formula record objects; field 2 matches formula ids stored on some cached formula-result cells
+- `Spreadsheet::header_storage_bucket()` — row- and column-indexed header storage referenced by each table model
 
-`.iwa` archives are streams of typed objects; `IwaArchive::objects()` decodes the
-full stream and `numbers::message_type_name()` names the known archive and table
-object types (`Document`, `Sheet`, `TableInfo`, `TableModel`, `Tile`, `DataList`, …).
+**Writing Numbers files:**
 
-The write-side Numbers support can create minimal crate-readable `.numbers`
-packages:
+- `numbers::Workbook` and `numbers::WritableTable` assemble table rows from scalar cell values
+- `Workbook::to_numbers_bytes()` and `Workbook::save_numbers()` produce a `.numbers` package
 
-- `numbers::Workbook` and `numbers::WritableTable` let you assemble table rows from scratch
-- `Workbook::encode_table_archives()` emits fresh `Tile` and string `DataList` archives for scalar cells
-- `Workbook::to_numbers_bytes()` and `Workbook::save_numbers()` wrap those archives in a ZIP package with metadata, core IWA members, table archives, and compatibility-oriented stubs for object container, calculation engine, and view state
-
-The generated package is currently intended for round-tripping through this
-crate. Full Apple Numbers compatibility still requires decoding and generating
-the real document/table object graph and its stylesheet, view-state, and
-calculation-engine references.
+The generated package round-trips through this crate. Full Apple Numbers
+compatibility still requires the complete document object graph, view state,
+styles, and calculation-engine references.
 
 Example tools help map those missing structures without turning fixture content
 into parser heuristics. They decode the IWA/Snappy framing and hand the raw
@@ -203,17 +175,17 @@ re-implementing wire decoding:
 
 ```bash
 # IWA framing + object stream overview, and a structural diff between packages
-cargo run --example dump_iwa_graph -- path/to/document.numbers
-cargo run --example diff_iwa_graph -- left.numbers right.numbers
-cargo run --example inspect_numbers -- path/to/document.numbers
+cargo run -p iwork-workbench --bin dump_iwa_graph -- path/to/document.numbers
+cargo run -p iwork-workbench --bin diff_iwa_graph -- left.numbers right.numbers
+cargo run -p iwork-workbench --bin inspect_numbers -- path/to/document.numbers
 
 # Schema-infer one object type across packages (protorev schema/explain/values/diff/experiments)
-cargo run --example iwa_corpus -- schema       6001 examples/numbers/*.numbers
-cargo run --example iwa_corpus -- diff         6001 before.numbers after.numbers
-cargo run --example iwa_corpus -- experiments  7    layout_investigation.protorev
+cargo run -p iwork-workbench --bin iwa_corpus -- schema       6001 examples/numbers/*.numbers
+cargo run -p iwork-workbench --bin iwa_corpus -- diff         6001 before.numbers after.numbers
+cargo run -p iwork-workbench --bin iwa_corpus -- experiments  7    layout_investigation.protorev
 
 # Explore the cross-object reference graph
-cargo run --example iwa_refs -- edges 6001 examples/numbers/personal_budget.numbers
+cargo run -p iwork-workbench --bin iwa_refs -- edges 6001 examples/numbers/personal_budget.numbers
 ```
 
 `dump_iwa_graph`/`diff_iwa_graph` work at the IWA framing and object-graph
@@ -225,60 +197,38 @@ reference graph structurally (which object types reference which). Together they
 let reverse engineering focus on controlled one-edit deltas, such as adding one
 table, renaming one sheet, or changing one cell style.
 
-The current parser relies on these reverse-engineered format details:
-
-- string values are looked up through `DataList*.iwa` archives
-- numeric and date values are stored inline in each tile row's field-6 cell buffer
-- field 7 is the authoritative uint16 offset table for locating cell records
-- date values are `f64` seconds since the Cocoa epoch (`2001-01-01T00:00:00Z`)
-- decimal values may be stored as IEEE 754-2008 decimal128 and are converted to `f64`
-
-The test suite covers both low-level decoder branches and fixture-backed structural checks for:
-
-- text cells, multi-text rows, and grouped text rows
-- finite numeric values decoded through the current cell-storage layout
-- Cocoa-epoch date cells from the Numbers fixtures
-- row decoding behavior around column counts, sentinels, and truncated records
+**Known date encoding:** date cell values are `f64` seconds since the Cocoa epoch (`2001-01-01T00:00:00Z`). Decimal values may use IEEE 754-2008 decimal128 and are converted to `f64`.
 
 ## Pages Parsing Notes
 
-The Pages reader decodes `Index/Document.iwa` as IWA/protobuf data. Object types
-are structurally identified by their message-type ID; the parser reads only
-fields with confirmed paths rather than scanning raw byte runs.
+What is decoded today:
 
-Current decoded structure:
+- `Body::template_name()` — iWork template identifier (e.g. `"04B_Term_Paper"`)
+- `Body::text_fragments()` — all paragraph text in document order; paragraphs split on `\n`, control-character block markers and object-replacement characters filtered
+- `Body::media_descriptions()` — alt-text for each image
 
-- `Body::template_name()` — type-10001 field `1.3` (UTF-8 template identifier)
-- `Body::text_fragments()` — type-2001 field 3 (TSWP text storage; `\n` = paragraph break, non-whitespace control bytes = block boundaries; U+FFFC object-replacement chars are filtered)
-- `Body::media_descriptions()` — type-3005 field `1.8` (image alt-text)
+Known gaps:
 
-Known gaps today:
-
-- `Body::title()` returns `None` — paragraph style → "Title" classification not yet decoded
-- `Body::headings()` returns empty — heading/body style classification not yet decoded
+- `Body::title()` returns `None` — paragraph-style title classification not yet implemented
+- `Body::headings()` returns empty — heading style classification not yet implemented
 - page/section structure and inline tables are not yet modeled
-- this is read-only semantic extraction, not a structured Pages editing model
 
 ## Keynote Parsing Notes
 
-The Keynote reader works at the slide-archive level. Each `Slide*.iwa` and
-`TemplateSlide*.iwa` entry is decoded as an IWA object stream; slides are
-sorted by archive path.
+What is decoded today:
 
-Current decoded structure:
+- `Presentation::theme_name()` — theme name (e.g. `"Blueprint"`)
+- `Slide::is_template()` — distinguishes layout masters from real slides
+- `Slide::title()` — slide title from the title placeholder
+- `Slide::text_fragments()` — all text on the slide in archive order
+- `Slide::media_descriptions()` — alt-text for each image on the slide
 
-- `Slide::is_template()` — path prefix (`Index/TemplateSlide-` vs `Index/Slide-`)
-- `Slide::title()` — type-7 drawable with field 2=2 (title placeholder) → field `1.4.1` (type-2001 object ID) → field 3 (UTF-8)
-- `Slide::text_fragments()` — type-2001 field 3, same encoding as Pages; U+FFFC filtered
-- `Slide::media_descriptions()` — type-3005 field `1.8` (image alt-text)
-- `Presentation::theme_name()` — type-10 field `1.3` (UTF-8)
+Known gaps:
 
-Known gaps today:
-
-- `Slide::layout_name()` returns `None` — field path for layout name not yet located
-- `Slide::speaker_notes()` not yet implemented — type-7 field 2=1 → `1.4.1` → type-2001 field 3 (pattern confirmed, ready to implement)
-- slide ordering is by archive path, not a fully decoded slide-graph traversal
-- animations, transitions, and exact object placement are not yet modeled
+- `Slide::layout_name()` returns `None` — not yet located in the format
+- `Slide::speaker_notes()` not yet implemented (pattern confirmed, ready to implement)
+- slide ordering is by archive path, not a full slide-graph traversal
+- animations, transitions, and exact object placement are not modeled
 
 ## Format Notes
 
