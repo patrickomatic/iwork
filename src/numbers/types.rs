@@ -45,6 +45,7 @@ pub fn message_type_name(message_type: u64) -> Option<&'static str> {
         401 => "DocumentStylesheet",
         4000 => "CalculationEngine",
         4008 => "FormulaRecord",
+        4009 => "FormulaAuxiliaryRecord",
         6000 => "TableInfo",
         6001 => "TableModel",
         6002 => "Tile",
@@ -68,6 +69,7 @@ mod tests {
         assert_eq!(message_type_name(6005), Some("DataList"));
         assert_eq!(message_type_name(1), Some("Document"));
         assert_eq!(message_type_name(4008), Some("FormulaRecord"));
+        assert_eq!(message_type_name(4009), Some("FormulaAuxiliaryRecord"));
     }
 
     #[test]
