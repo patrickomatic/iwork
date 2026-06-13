@@ -15,7 +15,7 @@ const WP_BODY_TYPE: u64 = 10001;
 ///
 /// field 3 (bytes): the raw UTF-8 document text, where `\n` separates paragraphs
 /// and TSWP block markers (`\x04`, etc.) delimit sections. Validated in
-/// eternal_sunshine.pages (9165-byte field 3 beginning "Author Name\n\nEternal Shine").
+/// `eternal_sunshine.pages` (9165-byte field 3 beginning "Author Name\n\nEternal Shine").
 /// Blueprint/parchment Keynote 2001 objects have no field 3 (empty text areas);
 /// field 3 is only present when the text area has actual content.
 const TSWP_TEXT_TYPE: u64 = 2001;
@@ -23,8 +23,8 @@ const TSWP_TEXT_TYPE: u64 = 2001;
 /// Message type of a media/image object.
 ///
 /// field 1 (bytes) → field 8 (bytes → UTF-8): image alt-text.
-/// Identical to the Keynote type-3005 encoding; validated in term_paper and
-/// modern_novel (2 type-3005 objects each in Document.iwa).
+/// Identical to the Keynote type-3005 encoding; validated in `term_paper` and
+/// `modern_novel` (2 type-3005 objects each in `Document.iwa`).
 const MEDIA_TYPE: u64 = 3005;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

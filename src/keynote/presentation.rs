@@ -13,7 +13,7 @@ const THEME_TYPE: u64 = 10;
 /// Message type of a Keynote drawable/placeholder object.
 ///
 /// - `field 2` (varint): placeholder kind — 1=notes, 2=title, 3=body.
-///   Validated across all real slides in with_content.key; invariant across
+///   Validated across all real slides in `with_content.key`; invariant across
 ///   slides with different layouts (title-only, title+body, quote, image).
 /// - `field 1.4.1` (varint): object ID of the associated type-2001 text store.
 ///   Confirmed by correlating decoded IDs with known 2001 objects per slide.

@@ -91,19 +91,19 @@ impl StylesheetCatalog {
             if looks_like_style_name(&rec.name) {
                 style_names_set.insert(rec.name.clone());
             }
-            if let Some(ref f) = rec.attributes.font_name {
-                if looks_like_font_name(f) {
-                    font_names_set.insert(f.clone());
-                }
+            if let Some(ref f) = rec.attributes.font_name
+                && looks_like_font_name(f)
+            {
+                font_names_set.insert(f.clone());
             }
         }
 
         // Keep any display names that look like style names.
         for obj in by_id.values() {
-            if let Some(display) = decode_display_name(obj) {
-                if looks_like_style_name(&display) {
-                    style_names_set.insert(display);
-                }
+            if let Some(display) = decode_display_name(obj)
+                && looks_like_style_name(&display)
+            {
+                style_names_set.insert(display);
             }
         }
 
@@ -267,7 +267,7 @@ fn decode_text_attributes(obj: &IwaObject) -> StyleAttributes {
         .field(TEXT_ATTR_COLOR)
         .and_then(|f| f.value.as_bytes())
         .and_then(|b| ProtoMessage::decode(b).ok())
-        .and_then(decode_color_message);
+        .and_then(|msg| decode_color_message(&msg));
 
     let alignment = message
         .field(STYLE_FIELD_CELL_ATTRS)
@@ -294,7 +294,7 @@ fn decode_text_attributes(obj: &IwaObject) -> StyleAttributes {
     }
 }
 
-fn decode_color_message(msg: ProtoMessage) -> Option<Color> {
+fn decode_color_message(msg: &ProtoMessage) -> Option<Color> {
     let read_f32 = |n: u32| -> Option<OrderedF32> {
         msg.field(n).and_then(|f| {
             if let ProtoValue::Fixed32(bits) = f.value {

@@ -6,10 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 cargo build
-cargo test
-cargo clippy
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
 cargo run -- <path-to-iwork-file>   # CLI inspector
 ```
+
+Before committing, always run `cargo test --workspace && cargo clippy --workspace -- -D warnings` and fix all errors.
 
 To run a single test:
 ```bash
