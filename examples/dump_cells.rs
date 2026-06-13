@@ -18,7 +18,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 
 use iwork::numbers::{self, CellValue};
-use iwork::{IwaArchive, ProtoMessage};
+use iwork::iwa::IwaArchive;
+use iwork::protobuf::ProtoMessage;
 
 fn main() -> Result<(), iwork::Error> {
     let mut path = "examples/numbers/personal_budget.numbers".to_owned();

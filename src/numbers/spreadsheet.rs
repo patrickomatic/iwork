@@ -8,7 +8,9 @@ use super::table::{
 };
 use super::table_model::TableModel;
 use crate::iwa::IwaArchive;
-use crate::{Error, Package, StylesheetCatalog};
+use crate::package::Package;
+use crate::stylesheet::StylesheetCatalog;
+use crate::Error;
 
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 const DOCUMENT_METADATA_ENTRY: &str = "Index/DocumentMetadata.iwa";

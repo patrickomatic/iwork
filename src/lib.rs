@@ -1,72 +1,66 @@
-//! Public entry points for reading Apple iWork packages.
+//! Reader for Apple iWork packages (`.numbers`, `.pages`, `.key`).
 //!
-//! The crate currently supports generic package inspection plus app-specific
-//! semantic readers:
+//! Open a document with the app-specific types:
 //!
-//! - [`Document`] for generic iWork package access
-//! - [`Package`] for ZIP-level entry enumeration and raw entry bytes
-//! - [`PropertiesPlist`] and [`InspectionReport`] for a small amount of
-//!   reverse-engineered metadata extraction
+//! - [`numbers::Document`] — spreadsheet data: sheets, tables, cell values
+//! - [`pages::Document`] — word-processor body: text fragments, media descriptions
+//! - [`keynote::Document`] — presentation: slides, titles, text, media descriptions
 //!
-//! The file-format assumptions behind those APIs are documented in
-//! `docs/file-format.md`, with parser-specific notes in `package.rs` and
-//! `plist.rs`.
+//! Use the generic [`Document`] when you only need the file-format version or
+//! UUID and don't need app-specific content.
 
 use std::path::Path;
 
 mod error;
 mod inspect;
-mod iwa;
-mod kind;
-mod package;
 mod plist;
-mod protobuf;
 mod stylesheet;
 
+pub mod iwa;
 pub mod keynote;
 pub mod numbers;
+pub mod package;
 pub mod pages;
+pub mod protobuf;
+
+mod kind;
 
 pub use error::Error;
-pub use inspect::{InspectionReport, count_keywords};
-pub use iwa::{
-    IwaArchive, IwaArchiveDescriptor, IwaChunk, IwaObject, IwaObjectReference, IwaPacket,
-};
+pub use inspect::InspectionReport;
 pub use kind::DocumentKind;
-pub use package::{Entry, Package, PackageSupport, PackageWriter};
+pub use package::PackageSupport;
 pub use plist::PropertiesPlist;
-pub use protobuf::{ProtoField, ProtoMessage, ProtoValue};
-pub use stylesheet::{OrderedF32, StyleAttributes, StyleRecord, StylesheetCatalog};
 
+/// A generic iWork package: format-version metadata and document-kind detection.
+///
+/// For app-specific content use [`numbers::Document`], [`pages::Document`], or
+/// [`keynote::Document`] directly.
 #[derive(Debug, Clone)]
 pub struct Document {
-    package: Package,
+    package: package::Package,
 }
 
 impl Document {
-    /// Opens a supported iWork package from disk.
+    /// Open a supported iWork package from disk.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
         Ok(Self {
-            package: Package::open(path)?,
+            package: package::Package::open(path)?,
         })
     }
 
-    /// Opens a supported iWork package from raw bytes.
+    /// Open a supported iWork package from raw bytes.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error> {
         Ok(Self {
-            package: Package::from_bytes(bytes)?,
+            package: package::Package::from_bytes(bytes)?,
         })
     }
 
-    /// Returns the underlying ZIP-like package view.
-    pub fn package(&self) -> &Package {
-        &self.package
-    }
-
-    /// Produces a small inspection report derived from known package members.
+    /// Produce a small inspection report: document kind, UUID, format version,
+    /// and package layout classification.
     pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
         self.package.inspect(path)
     }
 }
+
 #[cfg(test)]
 mod tests;

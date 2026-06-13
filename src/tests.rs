@@ -1,7 +1,8 @@
-use crate::{
-    Document, DocumentKind, Error, IwaArchive, Package, PackageSupport, PackageWriter, ProtoField,
-    ProtoMessage, count_keywords, keynote, numbers, pages,
-};
+use crate::inspect::count_keywords;
+use crate::iwa::IwaArchive;
+use crate::package::{Package, PackageSupport, PackageWriter};
+use crate::protobuf::{ProtoField, ProtoMessage};
+use crate::{Document, DocumentKind, Error, keynote, numbers, pages};
 
 const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
 const ATTENDANCE_EXAMPLE: &str = "examples/numbers/attendance.numbers";
@@ -82,8 +83,7 @@ fn package_writer_round_trips_stored_entries() -> Result<(), Error> {
 
 #[test]
 fn iwa_encoder_reproduces_every_fixture_archive() -> Result<(), Error> {
-    let document = Document::open(PERSONAL_BUDGET_EXAMPLE)?;
-    let package = document.package();
+    let package = Package::open(PERSONAL_BUDGET_EXAMPLE)?;
 
     let mut checked = 0;
     for entry in package.entries() {
@@ -193,8 +193,8 @@ fn app_specific_entry_points_reject_the_wrong_extension() {
 
 #[test]
 fn iwa_archives_decode_snappy_chunks_and_headers() -> Result<(), Error> {
-    let document = Document::open(PERSONAL_BUDGET_EXAMPLE)?;
-    let archive = IwaArchive::decode(document.package().entry_bytes("Index/Document.iwa")?)?;
+    let package = Package::open(PERSONAL_BUDGET_EXAMPLE)?;
+    let archive = IwaArchive::decode(package.entry_bytes("Index/Document.iwa")?)?;
 
     assert_eq!(archive.chunks().len(), 1);
     assert!(!archive.body().is_empty());
@@ -226,8 +226,7 @@ fn iwa_archives_decode_snappy_chunks_and_headers() -> Result<(), Error> {
 
 #[test]
 fn iwa_archive_decodes_full_object_stream() -> Result<(), Error> {
-    let document = Document::open(PERSONAL_BUDGET_EXAMPLE)?;
-    let package = document.package();
+    let package = Package::open(PERSONAL_BUDGET_EXAMPLE)?;
 
     // Index/Document.iwa is a composite archive: a Document root followed by
     // sheet/table objects, each framed by its own ArchiveInfo.

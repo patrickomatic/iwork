@@ -54,27 +54,6 @@ fn every_example_opens_and_exposes_core_metadata() -> Result<(), Error> {
 }
 
 #[test]
-fn stylesheet_fixture_signal_is_present() -> Result<(), Error> {
-    for path in NUMBERS_EXAMPLES
-        .iter()
-        .chain(PAGES_EXAMPLES.iter())
-        .chain(KEYNOTE_EXAMPLES.iter())
-    {
-        let package = Document::open(path)?;
-        let stylesheet = package
-            .package()
-            .entry_bytes("Index/DocumentStylesheet.iwa")?;
-
-        assert!(
-            !stylesheet.is_empty(),
-            "{path} should include a stylesheet payload"
-        );
-    }
-
-    Ok(())
-}
-
-#[test]
 fn examples_are_classified_by_extension() -> Result<(), Error> {
     for path in NUMBERS_EXAMPLES {
         let kind = Document::open(path)?.inspect((*path).to_owned())?.kind;

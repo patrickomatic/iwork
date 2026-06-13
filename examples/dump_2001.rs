@@ -1,5 +1,7 @@
 //! Hex-dumps the largest type-2001 TSWP object from a Pages/Keynote file.
-use iwork::{Error, IwaArchive, Package};
+use iwork::iwa::IwaArchive;
+use iwork::package::Package;
+use iwork::Error;
 
 fn main() -> Result<(), Error> {
     let path = std::env::args().nth(1).expect("usage: dump_2001 <file> [limit]");
