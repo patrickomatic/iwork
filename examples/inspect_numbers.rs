@@ -1,6 +1,8 @@
 use std::fmt::Write as _;
 
+use iwork::iwa::IwaArchive;
 use iwork::numbers::{self, message_type_name};
+use iwork::package::Package;
 use protorev::{Message, dump_message};
 
 /// Recursion depth for the protobuf dumps.
@@ -16,15 +18,15 @@ fn main() -> Result<(), iwork::Error> {
     let filter = args.next();
     let document = numbers::Document::open(&path)?;
     let spreadsheet = document.spreadsheet()?;
-    let package = document.package();
+    let package = Package::open(&path)?;
 
     if filter.is_none() {
         inspect_archive("Document", spreadsheet.document());
         inspect_archive("DocumentMetadata", spreadsheet.document_metadata());
         inspect_archive("Metadata", spreadsheet.metadata());
-        inspect_entry(package, "Index/ObjectContainer.iwa")?;
-        inspect_entry(package, "Index/CalculationEngine.iwa")?;
-        inspect_entry(package, "Index/ViewState.iwa")?;
+        inspect_entry(&package, "Index/ObjectContainer.iwa")?;
+        inspect_entry(&package, "Index/CalculationEngine.iwa")?;
+        inspect_entry(&package, "Index/ViewState.iwa")?;
         inspect_archive("Stylesheet", spreadsheet.stylesheet());
     }
 
@@ -41,15 +43,15 @@ fn main() -> Result<(), iwork::Error> {
     Ok(())
 }
 
-fn inspect_entry(package: &iwork::Package, path: &str) -> Result<(), iwork::Error> {
-    let archive = iwork::IwaArchive::decode(package.entry_bytes(path)?)?;
+fn inspect_entry(package: &Package, path: &str) -> Result<(), iwork::Error> {
+    let archive = IwaArchive::decode(package.entry_bytes(path)?)?;
     inspect_archive(path, &archive);
     Ok(())
 }
 
 /// Summarizes the IWA framing, then hands each object's protobuf payload to
 /// `protorev` for the field-level dump.
-fn inspect_archive(label: &str, archive: &iwork::IwaArchive) {
+fn inspect_archive(label: &str, archive: &IwaArchive) {
     println!("== {label} ==");
     println!(
         "descriptor: root={:?} kind={:?} body_hint={:?} refs={}",

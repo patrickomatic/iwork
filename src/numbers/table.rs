@@ -617,7 +617,7 @@ fn decode_decimal128(b: &[u8]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ProtoMessage;
+    use crate::protobuf::ProtoMessage;
 
     #[test]
     fn decode_cell_record_decodes_each_type_byte() {

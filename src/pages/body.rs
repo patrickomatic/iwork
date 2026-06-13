@@ -1,6 +1,7 @@
 use crate::iwa::IwaArchive;
 use crate::protobuf::ProtoMessage;
-use crate::{Error, Package};
+use crate::package::Package;
+use crate::Error;
 
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 

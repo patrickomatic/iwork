@@ -408,7 +408,7 @@ mod tests {
         // Smoke-check that actual fixture files parse without error.
         // This exercises the binary plist path via the real Metadata/Properties.plist
         // stored in each package.
-        use crate::Package;
+        use crate::package::Package;
         for path in &[
             "examples/numbers/personal_budget.numbers",
             "examples/pages/modern_novel.pages",

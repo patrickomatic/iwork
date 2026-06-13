@@ -4,7 +4,8 @@ use std::path::Path;
 use super::CellValue;
 use crate::iwa::{IwaArchive, IwaArchiveDescriptor, IwaObjectReference, IwaPacket};
 use crate::protobuf::{ProtoField, ProtoMessage};
-use crate::{Error, PackageWriter};
+use crate::package::PackageWriter;
+use crate::Error;
 
 #[derive(Debug, Clone, Default)]
 pub struct Workbook {

@@ -5,7 +5,9 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use iwork::numbers::message_type_name;
-use iwork::{Error, IwaArchive, Package};
+use iwork::iwa::IwaArchive;
+use iwork::package::Package;
+use iwork::Error;
 use protorev::{Corpus, Message};
 
 /// Recursion depth for protorev corpus aggregation over object payloads.

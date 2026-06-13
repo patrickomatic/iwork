@@ -245,7 +245,7 @@ fn decode_text_attributes(obj: &IwaObject) -> StyleAttributes {
         .and_then(|f| f.value.as_varint())
         .map(|v| v != 0);
     let font_size = text_attrs.field(TEXT_ATTR_FONT_SIZE).and_then(|f| {
-        if let crate::ProtoValue::Fixed32(bits) = f.value {
+        if let crate::protobuf::ProtoValue::Fixed32(bits) = f.value {
             let size = f32::from_bits(bits);
             if size > 0.0 && size.is_finite() {
                 return Some(OrderedF32(size));

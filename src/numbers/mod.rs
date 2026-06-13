@@ -16,7 +16,8 @@
 
 use std::path::Path;
 
-use crate::{DocumentKind, Error, InspectionReport, Package};
+use crate::package::Package;
+use crate::{DocumentKind, Error, InspectionReport};
 
 mod header_storage;
 mod sheet;

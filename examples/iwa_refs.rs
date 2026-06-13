@@ -21,7 +21,8 @@ use std::error::Error;
 use std::path::Path;
 
 use iwork::numbers::message_type_name;
-use iwork::{IwaArchive, Package};
+use iwork::iwa::IwaArchive;
+use iwork::package::Package;
 
 struct ObjectInfo {
     id: u64,
