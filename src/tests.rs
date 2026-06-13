@@ -390,7 +390,8 @@ fn keynote_presentation_decodes_structural_utf8_fields() -> Result<(), Error> {
         blueprint
             .slides()
             .iter()
-            .all(|slide| slide.media_descriptions().is_empty())
+            .any(|slide| !slide.media_descriptions().is_empty()),
+        "blueprint.key should have slides with media descriptions"
     );
 
     let parchment = keynote::Document::open("examples/keynote/parchment.key")?.presentation()?;
