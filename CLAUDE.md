@@ -64,13 +64,14 @@ The Numbers reader has an evidence-backed table path:
 - `Spreadsheet::sheets()` decodes `Sheet` objects from `Index/Document.iwa`, with field 1 as the sheet name and field 2 filtered to `TableInfo` references, then resolved through `TableInfo -> TableModel`.
 - `Spreadsheet::table_models()` decodes `TableModel` objects from `Index/CalculationEngine.iwa` (with `Document.iwa` fallback), including table UUID, name, row/column counts, header row/column counts, tile ids, header storage bucket ids, and DataList references.
 - `Spreadsheet::decoded_tables()` is the authoritative table view: it follows each model's tiles and scoped DataLists, merges multi-tile row ranges, and avoids cross-table string-key collisions.
-- `Spreadsheet::formula_records()` decodes type-4008 formula records from `Index/CalculationEngine.iwa`; record field 2 matches formula ids stored on some formula-result cells, and fields 7/8 are exposed as raw `FormulaBoundsPair` values.
+- `Spreadsheet::formula_records()` decodes type-4008 formula records from `Index/CalculationEngine.iwa`; record field 2 matches formula ids stored on some formula-result cells, fields 7/8 are exposed as raw `FormulaBoundsPair` values, and referenced type-4009 auxiliary record ids are retained.
+- `Spreadsheet::formula_auxiliary_records()` decodes type-4009 formula auxiliary records structurally: raw fields 1-3 plus repeated field-4 entries with raw fields 1-2.
 - `Spreadsheet::header_storage_bucket()` decodes type-6006 `HeaderStorageBucket` archives structurally. Each table model references a row-indexed bucket via `DataStore.field 1.2` and a column-indexed bucket via `DataStore.field 2`; entry fields 2-4 are still raw structural fields.
 - Cell decoding currently covers `Empty`, plain text, rich text, numbers/decimal128, dates, booleans, durations, formula errors, cached formula results with formula ids (`CellValue::Formula`), currency, and percentages.
 
 Known Numbers gaps:
 
-- Formula expressions/dependency graph are not decoded; formula result cells preserve the formula-result marker, formula id, and cached value through `CellValue::Formula`, and some formula ids resolve to type-4008 `FormulaRecord` objects. FormulaRecord fields 7/8 are decoded structurally as bounds pairs but their exact graph semantics are not named yet.
+- Formula expressions/dependency graph are not decoded; formula result cells preserve the formula-result marker, formula id, and cached value through `CellValue::Formula`, and some formula ids resolve to type-4008 `FormulaRecord` objects. FormulaRecord fields 7/8 and type-4009 auxiliary records are decoded structurally but their exact graph semantics are not named yet.
 - Header storage bucket axis roles are decoded, but layout semantics for entry fields 2-4 are not fully cross-validated.
 - Pivot table semantics are not modeled beyond normal sheet/table object membership and decoded cell values.
 - Writer output is crate-readable but still not guaranteed to open in Apple Numbers because the full document/table object graph, view state, styles, and calculation metadata are incomplete.

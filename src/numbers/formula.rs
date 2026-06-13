@@ -5,10 +5,13 @@
 //! giving the reader a stable join point before the expression payload itself
 //! is fully decoded.
 
+use std::collections::HashSet;
+
 use crate::iwa::{IwaArchive, IwaObject};
-use crate::protobuf::ProtoMessage;
+use crate::protobuf::{ProtoMessage, read_varint};
 
 pub(crate) const FORMULA_RECORD_TYPE: u64 = 4008;
+pub(crate) const FORMULA_AUXILIARY_RECORD_TYPE: u64 = 4009;
 
 const FIELD_FORMULA_ID: u32 = 2;
 const FIELD_FORMULA_KIND: u32 = 3;
@@ -16,6 +19,12 @@ const FIELD_BOUNDS_7: u32 = 7;
 const FIELD_BOUNDS_8: u32 = 8;
 const BOUNDS_FIELD_PRIMARY: u32 = 2;
 const BOUNDS_FIELD_SECONDARY: u32 = 3;
+const AUX_FIELD_1: u32 = 1;
+const AUX_FIELD_2: u32 = 2;
+const AUX_FIELD_3: u32 = 3;
+const AUX_FIELD_ENTRIES: u32 = 4;
+const AUX_ENTRY_FIELD_1: u32 = 1;
+const AUX_ENTRY_FIELD_2: u32 = 2;
 
 /// A decoded formula record from `Index/CalculationEngine.iwa`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,18 +34,23 @@ pub struct FormulaRecord {
     formula_kind: u64,
     field7_bounds: Option<FormulaBoundsPair>,
     field8_bounds: Option<FormulaBoundsPair>,
+    auxiliary_record_ids: Vec<u64>,
 }
 
 impl FormulaRecord {
     pub(crate) fn collect(archive: &IwaArchive) -> Vec<Self> {
+        let auxiliary_ids: HashSet<u64> = FormulaAuxiliaryRecord::collect(archive)
+            .into_iter()
+            .map(|record| record.object_id())
+            .collect();
         archive
             .objects()
             .iter()
-            .filter_map(Self::from_object)
+            .filter_map(|object| Self::from_object(object, &auxiliary_ids))
             .collect()
     }
 
-    fn from_object(object: &IwaObject) -> Option<Self> {
+    fn from_object(object: &IwaObject, auxiliary_ids: &HashSet<u64>) -> Option<Self> {
         if object.message_type != Some(FORMULA_RECORD_TYPE) {
             return None;
         }
@@ -57,6 +71,7 @@ impl FormulaRecord {
             formula_kind,
             field7_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_7),
             field8_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_8),
+            auxiliary_record_ids: referenced_auxiliary_ids(object, auxiliary_ids),
         })
     }
 
@@ -92,6 +107,110 @@ impl FormulaRecord {
     /// still under investigation.
     pub fn field8_bounds(&self) -> Option<&FormulaBoundsPair> {
         self.field8_bounds.as_ref()
+    }
+
+    /// Type-4009 object ids referenced structurally by this formula record.
+    pub fn auxiliary_record_ids(&self) -> &[u64] {
+        &self.auxiliary_record_ids
+    }
+}
+
+/// A structurally decoded type-4009 formula auxiliary record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormulaAuxiliaryRecord {
+    object_id: u64,
+    field1: u64,
+    field2: u64,
+    field3: u64,
+    entries: Vec<FormulaAuxiliaryEntry>,
+}
+
+impl FormulaAuxiliaryRecord {
+    pub(crate) fn collect(archive: &IwaArchive) -> Vec<Self> {
+        archive
+            .objects()
+            .iter()
+            .filter_map(Self::from_object)
+            .collect()
+    }
+
+    fn from_object(object: &IwaObject) -> Option<Self> {
+        if object.message_type != Some(FORMULA_AUXILIARY_RECORD_TYPE) {
+            return None;
+        }
+        let object_id = object.identifier?;
+        let message = ProtoMessage::decode(&object.payload).ok()?;
+        Some(Self {
+            object_id,
+            field1: message.field(AUX_FIELD_1).and_then(|field| field.value.as_varint())?,
+            field2: message.field(AUX_FIELD_2).and_then(|field| field.value.as_varint())?,
+            field3: message.field(AUX_FIELD_3).and_then(|field| field.value.as_varint())?,
+            entries: message
+                .fields_by_number(AUX_FIELD_ENTRIES)
+                .filter_map(|field| {
+                    field
+                        .value
+                        .as_bytes()
+                        .and_then(|bytes| ProtoMessage::decode(bytes).ok())
+                        .and_then(|entry| FormulaAuxiliaryEntry::from_message(&entry))
+                })
+                .collect(),
+        })
+    }
+
+    /// Object identifier of this auxiliary record within the package.
+    pub fn object_id(&self) -> u64 {
+        self.object_id
+    }
+
+    /// Raw field 1.
+    pub fn field1(&self) -> u64 {
+        self.field1
+    }
+
+    /// Raw field 2.
+    pub fn field2(&self) -> u64 {
+        self.field2
+    }
+
+    /// Raw field 3.
+    pub fn field3(&self) -> u64 {
+        self.field3
+    }
+
+    /// Repeated field-4 entries.
+    pub fn entries(&self) -> &[FormulaAuxiliaryEntry] {
+        &self.entries
+    }
+}
+
+/// One repeated field-4 entry from a type-4009 formula auxiliary record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormulaAuxiliaryEntry {
+    field1: u64,
+    field2: u64,
+}
+
+impl FormulaAuxiliaryEntry {
+    fn from_message(message: &ProtoMessage) -> Option<Self> {
+        Some(Self {
+            field1: message
+                .field(AUX_ENTRY_FIELD_1)
+                .and_then(|field| field.value.as_varint())?,
+            field2: message
+                .field(AUX_ENTRY_FIELD_2)
+                .and_then(|field| field.value.as_varint())?,
+        })
+    }
+
+    /// Raw entry field 1.
+    pub fn field1(&self) -> u64 {
+        self.field1
+    }
+
+    /// Raw entry field 2.
+    pub fn field2(&self) -> u64 {
+        self.field2
     }
 }
 
@@ -176,4 +295,21 @@ fn decode_bounds(message: &ProtoMessage, field_number: u32) -> Option<FormulaBou
         third: bounds.field(3).and_then(|field| field.value.as_varint())?,
         fourth: bounds.field(4).and_then(|field| field.value.as_varint())?,
     })
+}
+
+fn referenced_auxiliary_ids(object: &IwaObject, auxiliary_ids: &HashSet<u64>) -> Vec<u64> {
+    let Some(object_id) = object.identifier else {
+        return Vec::new();
+    };
+    let mut referenced = Vec::new();
+    for start in 0..object.payload.len() {
+        let mut cursor = start;
+        let Ok(value) = read_varint(&object.payload, &mut cursor) else {
+            continue;
+        };
+        if value != object_id && auxiliary_ids.contains(&value) && !referenced.contains(&value) {
+            referenced.push(value);
+        }
+    }
+    referenced
 }

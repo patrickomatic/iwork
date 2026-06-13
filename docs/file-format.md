@@ -163,6 +163,7 @@ structural evidence by one of two methods:
 | 401  | DocumentStylesheet      | `Index/DocumentStylesheet.iwa`                  |
 | 4000 | CalculationEngine       | `Index/CalculationEngine.iwa`                   |
 | 4008 | FormulaRecord           | field 2 matches formula ids stored in some cells |
+| 4009 | FormulaAuxiliaryRecord  | referenced by FormulaRecord objects             |
 | 6000 | TableInfo               | wraps one TableModel; count = table count       |
 | 6001 | TableModel              | references Tile/DataList/HeaderStorageBucket; holds table name |
 | 6002 | Tile                    | `Index/Tables/Tile*.iwa`                        |
@@ -373,6 +374,24 @@ the first decoded join point between tile cells and the formula graph:
 `Spreadsheet::formula_record(id)` resolves formula ids that have a matching
 type-4008 record. Some formula-result cell ids do not resolve here yet; the
 expression/dependency payload remains unmapped.
+
+Some `FormulaRecord` payloads structurally reference type-4009 objects by object
+id. `FormulaRecord::auxiliary_record_ids()` exposes those ids.
+
+## FormulaAuxiliaryRecord (message type 4009)
+
+`FormulaAuxiliaryRecord` objects live inside `Index/CalculationEngine.iwa` and
+are referenced by some type-4008 formula records. The currently grounded shape
+is:
+
+- Fields 1, 2, and 3: raw varints present on every type-4009 record.
+- Field 4: repeated entry message. Entry fields 1 and 2 are raw varints present
+  on every entry. Entry field 6 is high-confidence length-delimited data but
+  remains opaque in the library until its role is corroborated.
+
+`Spreadsheet::formula_auxiliary_records()` exposes these records, and
+`Spreadsheet::formula_auxiliary_record(id)` resolves the object ids carried by
+`FormulaRecord::auxiliary_record_ids()`.
 
 ## HeaderStorageBucket IWA Format (Index/Tables/HeaderStorageBucket*.iwa)
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::formula::FormulaRecord;
+use super::formula::{FormulaAuxiliaryRecord, FormulaRecord};
 use super::header_storage::HeaderStorageBucket;
 use super::sheet::{table_info_to_model_ids, Sheet};
 use super::table::{
@@ -121,6 +121,24 @@ impl Spreadsheet {
         self.formula_records()
             .into_iter()
             .find(|record| record.formula_id() == formula_id)
+    }
+
+    /// Decodes type-4009 formula auxiliary records from `Index/CalculationEngine.iwa`.
+    ///
+    /// Type-4008 [`FormulaRecord`] objects reference these by object id. The
+    /// record fields are exposed structurally while the exact formula-graph role
+    /// is still under investigation.
+    pub fn formula_auxiliary_records(&self) -> Vec<FormulaAuxiliaryRecord> {
+        let mut records = FormulaAuxiliaryRecord::collect(&self.calculation_engine);
+        records.sort_by_key(FormulaAuxiliaryRecord::object_id);
+        records
+    }
+
+    /// Finds a type-4009 formula auxiliary record by object id.
+    pub fn formula_auxiliary_record(&self, object_id: u64) -> Option<FormulaAuxiliaryRecord> {
+        self.formula_auxiliary_records()
+            .into_iter()
+            .find(|record| record.object_id() == object_id)
     }
 
     /// Decodes the document's sheets and their table membership.

@@ -623,6 +623,27 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         }),
         "expected at least one concrete formula bounds record"
     );
+    let auxiliary_records = spreadsheet.formula_auxiliary_records();
+    assert!(
+        !auxiliary_records.is_empty(),
+        "expected type-4009 formula auxiliary records"
+    );
+    assert!(
+        auxiliary_records
+            .iter()
+            .any(|record| !record.entries().is_empty()),
+        "expected at least one formula auxiliary record with entries"
+    );
+    let auxiliary_id = formula_records
+        .iter()
+        .flat_map(|record| record.auxiliary_record_ids())
+        .next()
+        .copied()
+        .ok_or(Error::InvalidIwa("missing formula auxiliary reference"))?;
+    let auxiliary = spreadsheet
+        .formula_auxiliary_record(auxiliary_id)
+        .ok_or(Error::InvalidIwa("missing formula auxiliary record"))?;
+    assert_eq!(auxiliary.object_id(), auxiliary_id);
 
     // Currency cell: decoded as CellValue::Currency with "USD" code.
     let currency = cells.iter().find_map(|c| {

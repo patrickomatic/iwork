@@ -28,7 +28,9 @@ mod table_model;
 mod types;
 mod write;
 
-pub use formula::{FormulaBounds, FormulaBoundsPair, FormulaRecord};
+pub use formula::{
+    FormulaAuxiliaryEntry, FormulaAuxiliaryRecord, FormulaBounds, FormulaBoundsPair, FormulaRecord,
+};
 pub use header_storage::{HeaderStorageBucket, HeaderStorageEntry};
 pub use sheet::Sheet;
 pub use spreadsheet::{Spreadsheet, TableArchive};
