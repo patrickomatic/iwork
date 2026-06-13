@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-#[path = "support/iwa_graph.rs"]
+#[path = "../support/iwa_graph.rs"]
 mod iwa_graph;
 
 fn main() -> Result<(), iwork::Error> {

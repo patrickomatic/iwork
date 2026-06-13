@@ -7,13 +7,12 @@ readme = "README.md"
 description = "Rust tooling for reading and writing Apple Numbers files"
 
 [workspace]
-members = ["."]
+members = [".", "workbench"]
 resolver = "3"
 
 [dependencies]
 
 [dev-dependencies]
-protorev = { git = "https://github.com/patrickomatic/protorev.git" }
 
 [lints]
 workspace = true
