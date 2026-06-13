@@ -1,20 +1,36 @@
 use std::fmt;
 
+/// All errors that can arise when opening or reading an iWork package.
 #[derive(Debug)]
 pub enum Error {
+    /// An OS-level I/O failure (file not found, permission denied, etc.).
     Io(std::io::Error),
+    /// The file does not begin with a ZIP local-file-header signature.
     NotAZipArchive,
+    /// The file extension is not one of `.numbers`, `.pages`, or `.key`.
     UnsupportedDocumentType(String),
+    /// An IWA chunk carries an unrecognised kind byte (only `0` / Snappy is supported).
     UnsupportedIwaChunkType(u8),
+    /// The end-of-central-directory (EOCD) record could not be located in the ZIP.
     MissingEndOfCentralDirectory,
+    /// The ZIP central directory is malformed or its offsets are out of range.
     InvalidCentralDirectory,
+    /// A ZIP local file header at the recorded offset has a bad signature or
+    /// its field offsets are out of range.
     InvalidLocalFileHeader,
+    /// An entry uses a ZIP compression method other than stored (0) or deflate (8).
     UnsupportedCompression { path: String, method: u16 },
+    /// A deflate-compressed entry could not be decompressed.
     InvalidCompressedEntry { path: String },
+    /// A requested package entry path was not found in the ZIP central directory.
     MissingEntry(String),
+    /// A byte sequence that was expected to be valid UTF-8 was not.
     InvalidUtf8(std::string::FromUtf8Error),
+    /// A `Metadata/Properties.plist` value is missing or has the wrong type.
     InvalidPlist(&'static str),
+    /// An IWA or Snappy framing invariant was violated.
     InvalidIwa(&'static str),
+    /// A read ran off the end of an expected byte range.
     Truncated(&'static str),
 }
 

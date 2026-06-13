@@ -29,6 +29,7 @@ const LOCAL_FILE_SIGNATURE: u32 = 0x0403_4B50;
 const STORED_COMPRESSION_METHOD: u16 = 0;
 const DEFLATE_COMPRESSION_METHOD: u16 = 8;
 
+/// One file entry from a ZIP central directory.
 #[derive(Debug, Clone)]
 pub struct Entry {
     /// Package-relative path exactly as stored in the ZIP central directory.
@@ -43,12 +44,21 @@ pub struct Entry {
     inflated_bytes: OnceCell<Result<Box<[u8]>, String>>,
 }
 
+/// A parsed iWork package (ZIP archive).
+///
+/// Reads the ZIP central directory on construction and caches it for
+/// O(n) entry lookup. The raw bytes remain in memory so that [`Self::entry_bytes`]
+/// can slice into them directly without copying for stored entries.
 #[derive(Debug, Clone)]
 pub struct Package {
     bytes: Vec<u8>,
     entries: Vec<Entry>,
 }
 
+/// Builds a minimal iWork-compatible ZIP archive from scratch.
+///
+/// Entries are always stored uncompressed (method 0). Call [`Self::add_entry`]
+/// one or more times, then [`Self::finish`] to obtain the raw ZIP bytes.
 #[derive(Debug, Clone, Default)]
 pub struct PackageWriter {
     entries: Vec<PackageEntryWriter>,
@@ -60,10 +70,17 @@ struct PackageEntryWriter {
     contents: Vec<u8>,
 }
 
+/// Classification of a package's ZIP layout against the variants this crate
+/// currently handles.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PackageSupport {
+    /// The package contains `Index/*.iwa` entries directly — the modern layout
+    /// this crate fully supports.
     SupportedDirectIndexEntries,
+    /// The package contains a single `Index.zip` sub-archive — the legacy
+    /// layout produced by very old versions of iWork.
     UnsupportedLegacyIndexZip,
+    /// The package layout is unrecognised.
     #[default]
     UnsupportedUnknownLayout,
 }
@@ -255,10 +272,15 @@ impl Package {
 }
 
 impl PackageWriter {
+    /// Create an empty writer.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Append an entry with the given path and raw contents.
+    ///
+    /// Entries are stored in the order they are added; the ZIP central
+    /// directory records them in that same order.
     pub fn add_entry(
         &mut self,
         path: impl Into<String>,
@@ -271,6 +293,7 @@ impl PackageWriter {
         self
     }
 
+    /// Serialise all added entries to a valid ZIP archive.
     pub fn finish(&self) -> Result<Vec<u8>, Error> {
         let mut out = Vec::new();
         let mut central_directory = Vec::new();
@@ -460,4 +483,116 @@ unsafe extern "C" {
     ) -> i32;
     fn inflate(strm: *mut ZStream, flush: i32) -> i32;
     fn inflateEnd(strm: *mut ZStream) -> i32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn single_entry_zip(path: &str, contents: &[u8]) -> Vec<u8> {
+        PackageWriter::new()
+            .add_entry(path, contents.to_vec())
+            .finish()
+            .unwrap()
+    }
+
+    // ── PackageWriter ────────────────────────────────────────────────────────
+
+    #[test]
+    fn writer_roundtrip_single_entry() {
+        let data = b"hello iwork";
+        let zip = single_entry_zip("Index/Document.iwa", data);
+        let pkg = Package::from_bytes(zip).unwrap();
+        assert_eq!(pkg.entries().len(), 1);
+        assert_eq!(pkg.entries()[0].path, "Index/Document.iwa");
+        assert_eq!(pkg.entry_bytes("Index/Document.iwa").unwrap(), data);
+    }
+
+    #[test]
+    fn writer_roundtrip_multiple_entries() {
+        let zip = PackageWriter::new()
+            .add_entry("Index/Document.iwa", b"first".to_vec())
+            .add_entry("Metadata/Properties.plist", b"second".to_vec())
+            .finish()
+            .unwrap();
+        let pkg = Package::from_bytes(zip).unwrap();
+        assert_eq!(pkg.entries().len(), 2);
+        assert_eq!(pkg.entry_bytes("Index/Document.iwa").unwrap(), b"first");
+        assert_eq!(pkg.entry_bytes("Metadata/Properties.plist").unwrap(), b"second");
+    }
+
+    #[test]
+    fn writer_empty_contents_entry() {
+        let zip = single_entry_zip("empty.iwa", b"");
+        let pkg = Package::from_bytes(zip).unwrap();
+        assert_eq!(pkg.entry_bytes("empty.iwa").unwrap(), b"");
+    }
+
+    #[test]
+    fn writer_crc32_roundtrip_integrity() {
+        // Verify that reading back a non-trivial payload returns exactly what was written.
+        let data: Vec<u8> = (0u8..=255).collect();
+        let zip = single_entry_zip("blob.iwa", &data);
+        let pkg = Package::from_bytes(zip).unwrap();
+        assert_eq!(pkg.entry_bytes("blob.iwa").unwrap(), data.as_slice());
+    }
+
+    // ── PackageSupport classification ────────────────────────────────────────
+
+    #[test]
+    fn support_direct_index_entries() {
+        let zip = single_entry_zip("Index/Document.iwa", b"x");
+        let pkg = Package::from_bytes(zip).unwrap();
+        assert_eq!(pkg.support(), PackageSupport::SupportedDirectIndexEntries);
+    }
+
+    #[test]
+    fn support_legacy_index_zip() {
+        let zip = single_entry_zip("Index.zip", b"x");
+        let pkg = Package::from_bytes(zip).unwrap();
+        assert_eq!(pkg.support(), PackageSupport::UnsupportedLegacyIndexZip);
+    }
+
+    #[test]
+    fn support_unknown_layout() {
+        let zip = single_entry_zip("Metadata/Properties.plist", b"x");
+        let pkg = Package::from_bytes(zip).unwrap();
+        assert_eq!(pkg.support(), PackageSupport::UnsupportedUnknownLayout);
+    }
+
+    // ── entry_bytes error paths ───────────────────────────────────────────────
+
+    #[test]
+    fn entry_bytes_missing_entry_error() {
+        let zip = single_entry_zip("Index/Document.iwa", b"x");
+        let pkg = Package::from_bytes(zip).unwrap();
+        let result = pkg.entry_bytes("Index/Missing.iwa");
+        assert!(matches!(result, Err(Error::MissingEntry(p)) if p == "Index/Missing.iwa"));
+    }
+
+    #[test]
+    fn from_bytes_not_a_zip_fails() {
+        let result = Package::from_bytes(b"not a zip file".to_vec());
+        assert!(matches!(result, Err(Error::NotAZipArchive)));
+    }
+
+    #[test]
+    fn from_bytes_empty_fails() {
+        let result = Package::from_bytes(vec![]);
+        assert!(matches!(result, Err(Error::NotAZipArchive)));
+    }
+
+    // ── crc32 ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn crc32_empty_is_known_value() {
+        // CRC32 of an empty byte sequence is 0x00000000.
+        assert_eq!(crc32(b""), 0x0000_0000);
+    }
+
+    #[test]
+    fn crc32_known_value() {
+        // CRC32("123456789") = 0xCBF43926 — the standard check value.
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+    }
 }
