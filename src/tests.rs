@@ -577,6 +577,25 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         .any(|c| matches!(c, CellValue::Text(s) if s.contains("rich text")));
     assert!(has_rich, "expected a rich-text cell containing 'rich text'");
 
+    // Formula result cells retain their formula marker while preserving cached
+    // result access through the normal typed accessors.
+    let formula_results: Vec<&CellValue> = cells
+        .iter()
+        .filter_map(|cell| cell.formula_result())
+        .collect();
+    assert!(
+        formula_results.len() >= 2,
+        "expected cached formula result cells, got {formula_results:?}"
+    );
+    assert!(
+        formula_results.iter().any(|cell| cell.as_number().is_some()),
+        "expected a formula cell with a cached numeric result"
+    );
+    assert!(
+        formula_results.iter().any(|cell| cell.as_text().is_some()),
+        "expected a formula cell with a cached text result"
+    );
+
     // Currency cell: decoded as CellValue::Currency with "USD" code.
     let currency = cells.iter().find_map(|c| {
         if let CellValue::Currency { value, code } = c {

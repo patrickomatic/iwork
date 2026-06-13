@@ -149,10 +149,10 @@ fn collect_strings_starting_at(rows: &[Vec<CellValue>], first_key: u32) -> BTree
 
     for row in rows {
         for cell in row {
-            if let CellValue::Text(value) = cell
+            if let Some(value) = cell.as_text()
                 && !map.contains_key(value)
             {
-                map.insert(value.clone(), next_key);
+                map.insert(value.to_owned(), next_key);
                 next_key += 1;
             }
         }
@@ -166,6 +166,7 @@ fn collect_strings_starting_at(rows: &[Vec<CellValue>], first_key: u32) -> BTree
 const TILE_OFFSET_SLOTS: usize = 255;
 /// Constant `TileRowInfo.f5` cell-storage marker observed across real tiles.
 const TILE_ROW_STORAGE_VERSION: u64 = 5;
+const FLAG_FORMULA_RESULT: u32 = 0x0200;
 /// `MessageInfo.version` triple (`f2`) carried by every real archive header.
 const ARCHIVE_VERSION: [u8; 3] = [1, 0, 5];
 
@@ -560,6 +561,7 @@ fn legacy_column_record(column: usize, offset: u16, cell: &CellValue) -> Result<
         CellValue::Number(_) | CellValue::Bool(_) | CellValue::Duration(_)
         | CellValue::Percentage(_) | CellValue::Currency { .. } => 2,
         CellValue::Date(_) => 4,
+        CellValue::Formula(value) => return legacy_column_record(usize::from(column), offset, value),
         CellValue::Text(_) => 8,
     };
     Ok(record)
@@ -583,6 +585,15 @@ fn encode_cell_record(cell: &CellValue, strings: &BTreeMap<String, u32>) -> Resu
                 .get(value)
                 .ok_or(Error::InvalidIwa("missing string datalist key"))?;
             (3u8, 0x8u32, key.to_le_bytes().to_vec())
+        }
+        CellValue::Formula(value) => {
+            let mut record = encode_cell_record(value, strings)?;
+            if record.len() >= 12 {
+                let flags = u32::from_le_bytes([record[8], record[9], record[10], record[11]])
+                    | FLAG_FORMULA_RESULT;
+                record[8..12].copy_from_slice(&flags.to_le_bytes());
+            }
+            return Ok(record);
         }
     };
 
@@ -611,6 +622,11 @@ mod tests {
             CellValue::Text("Utilities".to_owned()),
             CellValue::Number(42.5),
             CellValue::Date(625_881_600.0),
+        ]);
+        table.push_row(vec![
+            CellValue::Text("Formula".to_owned()),
+            CellValue::Formula(Box::new(CellValue::Number(7.0))),
+            CellValue::Formula(Box::new(CellValue::Text("cached".to_owned()))),
         ]);
         workbook.add_table(table);
 
@@ -641,13 +657,21 @@ mod tests {
         );
 
         let decoded = Table::from_tile(&tile_archive, &strings, &std::collections::HashMap::new(), &std::collections::HashMap::new());
-        assert_eq!(decoded.rows().len(), 2);
+        assert_eq!(decoded.rows().len(), 3);
         assert_eq!(
             decoded.rows()[1].cells,
             vec![
                 CellValue::Text("Utilities".to_owned()),
                 CellValue::Number(42.5),
                 CellValue::Date(625_881_600.0),
+            ]
+        );
+        assert_eq!(
+            decoded.rows()[2].cells,
+            vec![
+                CellValue::Text("Formula".to_owned()),
+                CellValue::Formula(Box::new(CellValue::Number(7.0))),
+                CellValue::Formula(Box::new(CellValue::Text("cached".to_owned()))),
             ]
         );
 
