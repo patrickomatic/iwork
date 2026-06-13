@@ -15,8 +15,11 @@ pub(crate) const FORMULA_AUXILIARY_RECORD_TYPE: u64 = 4009;
 
 const FIELD_FORMULA_ID: u32 = 2;
 const FIELD_FORMULA_KIND: u32 = 3;
+const FIELD_RECORD_KEY: u32 = 1;
 const FIELD_BOUNDS_7: u32 = 7;
 const FIELD_BOUNDS_8: u32 = 8;
+const RECORD_KEY_FIELD_1: u32 = 1;
+const RECORD_KEY_FIELD_2: u32 = 2;
 const BOUNDS_FIELD_PRIMARY: u32 = 2;
 const BOUNDS_FIELD_SECONDARY: u32 = 3;
 const AUX_FIELD_1: u32 = 1;
@@ -33,6 +36,7 @@ const AUX_PAYLOAD_FIELD_2: u32 = 2;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormulaRecord {
     object_id: u64,
+    record_key: FormulaRecordKey,
     formula_id: u32,
     formula_kind: u64,
     field7_bounds: Option<FormulaBoundsPair>,
@@ -59,6 +63,7 @@ impl FormulaRecord {
         }
         let object_id = object.identifier?;
         let message = ProtoMessage::decode(&object.payload).ok()?;
+        let record_key = decode_record_key(&message)?;
         let formula_id = message
             .field(FIELD_FORMULA_ID)
             .and_then(|field| field.value.as_varint())
@@ -70,6 +75,7 @@ impl FormulaRecord {
 
         Some(Self {
             object_id,
+            record_key,
             formula_id,
             formula_kind,
             field7_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_7),
@@ -81,6 +87,11 @@ impl FormulaRecord {
     /// Object identifier of this formula record within the package.
     pub fn object_id(&self) -> u64 {
         self.object_id
+    }
+
+    /// Raw two-varint key stored in field 1.
+    pub fn record_key(&self) -> &FormulaRecordKey {
+        &self.record_key
     }
 
     /// Local formula id referenced by formula-result cells in tile storage.
@@ -115,6 +126,25 @@ impl FormulaRecord {
     /// Type-4009 object ids referenced structurally by this formula record.
     pub fn auxiliary_record_ids(&self) -> &[u64] {
         &self.auxiliary_record_ids
+    }
+}
+
+/// Raw two-varint key stored in `FormulaRecord.field 1`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormulaRecordKey {
+    field1: u64,
+    field2: u64,
+}
+
+impl FormulaRecordKey {
+    /// Raw key field 1.
+    pub fn field1(&self) -> u64 {
+        self.field1
+    }
+
+    /// Raw key field 2.
+    pub fn field2(&self) -> u64 {
+        self.field2
     }
 }
 
@@ -324,6 +354,21 @@ fn decode_bounds(message: &ProtoMessage, field_number: u32) -> Option<FormulaBou
         second: bounds.field(2).and_then(|field| field.value.as_varint())?,
         third: bounds.field(3).and_then(|field| field.value.as_varint())?,
         fourth: bounds.field(4).and_then(|field| field.value.as_varint())?,
+    })
+}
+
+fn decode_record_key(message: &ProtoMessage) -> Option<FormulaRecordKey> {
+    let key = message
+        .field(FIELD_RECORD_KEY)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(|bytes| ProtoMessage::decode(bytes).ok())?;
+    Some(FormulaRecordKey {
+        field1: key
+            .field(RECORD_KEY_FIELD_1)
+            .and_then(|field| field.value.as_varint())?,
+        field2: key
+            .field(RECORD_KEY_FIELD_2)
+            .and_then(|field| field.value.as_varint())?,
     })
 }
 
