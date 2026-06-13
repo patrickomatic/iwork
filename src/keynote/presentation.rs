@@ -72,10 +72,16 @@ impl Presentation {
         Ok(Self { theme_name, slides })
     }
 
+    /// The theme name, sourced from the type-10 object in `Document.iwa` field
+    /// `1.3`. Example values: `"Blueprint"`, `"21_BasicWhite"`.
     pub fn theme_name(&self) -> Option<&str> {
         self.theme_name.as_deref()
     }
 
+    /// All slide archives (real and template), sorted by archive path.
+    ///
+    /// Use [`Slide::is_template`] to distinguish layout masters from real
+    /// slides.
     pub fn slides(&self) -> &[Slide] {
         &self.slides
     }
@@ -228,26 +234,43 @@ impl Slide {
         }
     }
 
+    /// The IWA archive path for this slide, e.g. `"Index/Slide-1.iwa"`.
     pub fn path(&self) -> &str {
         &self.path
     }
 
+    /// `true` if this is a layout master (path starts with `Index/TemplateSlide-`).
     pub fn is_template(&self) -> bool {
         self.is_template
     }
 
+    /// The layout name, or `None` until the layout-name field path is located.
     pub fn layout_name(&self) -> Option<&str> {
         self.layout_name.as_deref()
     }
 
+    /// The slide title, sourced from the type-7 drawable with `field 2 == 2`
+    /// (title placeholder) → `field 1.4.1` object ID → type-2001 field 3.
+    ///
+    /// Returns `None` when the slide has no title placeholder or the referenced
+    /// type-2001 object contains no text.
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
 
+    /// All unique text fragments from the slide, in archive order.
+    ///
+    /// Decoded from every type-2001 field 3 in the slide archive. Paragraphs
+    /// are split on `\n`; TSWP block boundaries (non-whitespace control bytes)
+    /// and U+FFFC object-replacement characters are stripped. Fragments are
+    /// deduplicated.
     pub fn text_fragments(&self) -> &[String] {
         &self.text_fragments
     }
 
+    /// Alt-text strings for all images on the slide, in archive order.
+    ///
+    /// Decoded from type-3005 field `1.8`.
     pub fn media_descriptions(&self) -> &[String] {
         &self.media_descriptions
     }
