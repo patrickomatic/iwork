@@ -112,7 +112,7 @@ fn decode_tswp_text(archive: &IwaArchive) -> Vec<String> {
             .split(|c: char| c.is_control() && c != '\n')
             .flat_map(|seg| seg.split('\n'))
             .map(str::trim)
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.is_empty() && !s.contains('\u{FFFC}'))
         {
             if seen.insert(fragment.to_owned()) {
                 fragments.push(fragment.to_owned());
