@@ -6,23 +6,29 @@
 //! replaces the ad-hoc extraction scripts that hand-rolled the same work.
 //!
 //! ```text
-//! cargo run --example iwa_corpus -- schema  6001 [--min-confidence high|medium|low] examples/numbers/*.numbers
-//! cargo run --example iwa_corpus -- infer   6001 examples/numbers/*.numbers
-//! cargo run --example iwa_corpus -- explain 6001 9   examples/numbers/*.numbers
-//! cargo run --example iwa_corpus -- values  6001 8   examples/numbers/*.numbers
-//! cargo run --example iwa_corpus -- diff    6001 before.numbers after.numbers
+//! cargo run --example iwa_corpus -- schema      6001 [--min-confidence high|medium|low] examples/numbers/*.numbers
+//! cargo run --example iwa_corpus -- infer       6001 examples/numbers/*.numbers
+//! cargo run --example iwa_corpus -- explain     6001 9   examples/numbers/*.numbers
+//! cargo run --example iwa_corpus -- values      6001 8   examples/numbers/*.numbers
+//! cargo run --example iwa_corpus -- diff        6001 before.numbers after.numbers
+//! cargo run --example iwa_corpus -- experiments 6001 experiments.protorev
 //! ```
 //!
 //! The object type is the Apple iWork message type identifier (see
 //! `numbers::message_type_name`); the field path is a `protorev` dotted path such
 //! as `4.3` (`TableModel` → `DataStore` → `TileStorage`).
+//!
+//! `experiments` reads a `.protorev` manifest (protorev's `[[experiment]]` format)
+//! where the `before`/`after` entries are iWork package paths instead of raw `.pb`
+//! files. For each experiment it collects objects of `<type>` from both sides,
+//! builds corpora, and runs `Corpus::diff`.
 
 use std::error::Error;
 use std::path::Path;
 
 use iwork::numbers::message_type_name;
 use iwork::{IwaArchive, Package};
-use protorev::{Confidence, Corpus, FieldPath, Message, SchemaOptions};
+use protorev::{Confidence, Corpus, ExperimentManifest, FieldPath, Message, SchemaOptions};
 
 const CORPUS_DEPTH: usize = 8;
 
@@ -47,6 +53,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         "explain" => explain_command(rest),
         "values" => values_command(rest),
         "diff" => diff_command(rest),
+        "experiments" => experiments_command(rest),
         "-h" | "--help" | "help" => {
             print_usage();
             Ok(())
@@ -112,6 +119,43 @@ fn diff_command(args: &[String]) -> Result<(), Box<dyn Error>> {
     let before_corpus = corpus_for(message_type, std::slice::from_ref(before))?;
     let after_corpus = corpus_for(message_type, std::slice::from_ref(after))?;
     print!("{}", Corpus::diff(&before_corpus, &after_corpus));
+    Ok(())
+}
+
+/// Runs all experiments in a `.protorev` manifest against iWork packages.
+///
+/// Each `[[experiment]]` block lists before/after iWork package paths. For each
+/// experiment the example collects all objects of `message_type`, builds corpora,
+/// and prints a `Corpus::diff`. This mirrors `protorev experiments` but with the
+/// IWA/Snappy layer in front so you work directly with `.numbers`/`.pages`/`.key`
+/// files rather than pre-extracted `.pb` payloads.
+fn experiments_command(args: &[String]) -> Result<(), Box<dyn Error>> {
+    let message_type = parse_type(args.first())?;
+    let manifest_path = args.get(1).ok_or_else(|| err("missing <manifest.protorev>"))?;
+
+    let manifest = ExperimentManifest::from_file(manifest_path)?;
+    for experiment in &manifest.experiments {
+        println!("=== {} ===", experiment.name);
+        if let Some(notes) = &experiment.notes {
+            println!("notes: {notes}");
+        }
+
+        let before_files: Vec<String> = experiment
+            .before
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        let after_files: Vec<String> = experiment
+            .after
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+
+        let before_corpus = corpus_for(message_type, &before_files)?;
+        let after_corpus = corpus_for(message_type, &after_files)?;
+        print!("{}", Corpus::diff(&before_corpus, &after_corpus));
+        println!();
+    }
     Ok(())
 }
 
@@ -191,9 +235,14 @@ fn print_usage() {
     println!("iwa_corpus: feed iWork object payloads into the protorev workbench");
     println!();
     println!("usage:");
-    println!("  iwa_corpus schema  <type> [--min-confidence high|medium|low] <file.numbers>...");
-    println!("  iwa_corpus infer   <type> <file.numbers>...");
-    println!("  iwa_corpus explain <type> <field.path> <file.numbers>...");
-    println!("  iwa_corpus values  <type> <field.path> <file.numbers>...");
-    println!("  iwa_corpus diff    <type> <before.numbers> <after.numbers>");
+    println!("  iwa_corpus schema      <type> [--min-confidence high|medium|low] <file>...");
+    println!("  iwa_corpus infer       <type> <file>...");
+    println!("  iwa_corpus explain     <type> <field.path> <file>...");
+    println!("  iwa_corpus values      <type> <field.path> <file>...");
+    println!("  iwa_corpus diff        <type> <before> <after>");
+    println!("  iwa_corpus experiments <type> <manifest.protorev>");
+    println!();
+    println!("  <type> is an iWork message type id (e.g. 6001 for TableModel)");
+    println!("  <file> is a .numbers, .pages, or .key package");
+    println!("  experiments: before/after entries in the manifest are package paths");
 }

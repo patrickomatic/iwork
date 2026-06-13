@@ -202,9 +202,10 @@ cargo run --example dump_iwa_graph -- path/to/document.numbers
 cargo run --example diff_iwa_graph -- left.numbers right.numbers
 cargo run --example inspect_numbers -- path/to/document.numbers
 
-# Schema-infer one object type across packages (protorev schema/explain/values/diff)
-cargo run --example iwa_corpus -- schema 6001 examples/numbers/*.numbers
-cargo run --example iwa_corpus -- diff   6001 before.numbers after.numbers
+# Schema-infer one object type across packages (protorev schema/explain/values/diff/experiments)
+cargo run --example iwa_corpus -- schema       6001 examples/numbers/*.numbers
+cargo run --example iwa_corpus -- diff         6001 before.numbers after.numbers
+cargo run --example iwa_corpus -- experiments  7    layout_investigation.protorev
 
 # Explore the cross-object reference graph
 cargo run --example iwa_refs -- edges 6001 examples/numbers/personal_budget.numbers
@@ -234,44 +235,45 @@ The test suite covers both low-level decoder branches and fixture-backed structu
 - Cocoa-epoch date cells from the Numbers fixtures
 - row decoding behavior around column counts, sentinels, and truncated records
 
-## Pages String Field Parsing Notes
+## Pages Parsing Notes
 
-The Pages reader currently decodes `Index/Document.iwa` as IWA/protobuf data and
-walks length-delimited fields to return valid UTF-8 string values. It returns:
+The Pages reader decodes `Index/Document.iwa` as IWA/protobuf data. Object types
+are structurally identified by their message-type ID; the parser reads only
+fields with confirmed paths rather than scanning raw byte runs.
 
-- `None` for title until the title object field is structurally decoded
-- an empty heading list until heading/paragraph style fields are structurally decoded
-- ordered UTF-8 string fields recovered from the document archive
+Current decoded structure:
 
-This avoids treating fixture prose as format knowledge. The parser does not scan
-raw printable byte runs and does not classify strings by matching words from the
-example documents.
+- `Body::template_name()` — type-10001 field `1.3` (UTF-8 template identifier)
+- `Body::text_fragments()` — type-2001 field 3 (TSWP text storage; `\n` = paragraph break, non-whitespace control bytes = block boundaries; U+FFFC object-replacement chars are filtered)
+- `Body::media_descriptions()` — type-3005 field `1.8` (image alt-text)
 
 Known gaps today:
 
-- title, heading, paragraph, and text-run object fields are not yet mapped
-- returned strings may include non-document metadata fields because the schema is
-  not fully decoded yet
+- `Body::title()` returns `None` — paragraph style → "Title" classification not yet decoded
+- `Body::headings()` returns empty — heading/body style classification not yet decoded
+- page/section structure and inline tables are not yet modeled
 - this is read-only semantic extraction, not a structured Pages editing model
 
-## Keynote String Field Parsing Notes
+## Keynote Parsing Notes
 
-The Keynote reader works at the slide-archive level. It decodes `Slide*.iwa` and
-`TemplateSlide*.iwa` entries as IWA/protobuf data and walks length-delimited
-fields to return valid UTF-8 string values:
+The Keynote reader works at the slide-archive level. Each `Slide*.iwa` and
+`TemplateSlide*.iwa` entry is decoded as an IWA object stream; slides are
+sorted by archive path.
 
-- `None` for layout names and titles until those object fields are structurally decoded
-- ordered UTF-8 string fields recovered from each slide archive
-- an empty media description list until media/alt-text fields are structurally decoded
+Current decoded structure:
 
-This avoids treating fixture slide text, placeholder words, or image descriptions
-as format knowledge.
+- `Slide::is_template()` — path prefix (`Index/TemplateSlide-` vs `Index/Slide-`)
+- `Slide::title()` — type-7 drawable with field 2=2 (title placeholder) → field `1.4.1` (type-2001 object ID) → field 3 (UTF-8)
+- `Slide::text_fragments()` — type-2001 field 3, same encoding as Pages; U+FFFC filtered
+- `Slide::media_descriptions()` — type-3005 field `1.8` (image alt-text)
+- `Presentation::theme_name()` — type-10 field `1.3` (UTF-8)
 
 Known gaps today:
 
-- slide ordering is inferred from archive paths rather than a fully decoded slide graph
-- template slides and live slides are both surfaced when they contain UTF-8 fields
-- presenter notes, animations, and exact object placement are not yet modeled
+- `Slide::layout_name()` returns `None` — field path for layout name not yet located
+- `Slide::speaker_notes()` not yet implemented — type-7 field 2=1 → `1.4.1` → type-2001 field 3 (pattern confirmed, ready to implement)
+- slide ordering is by archive path, not a fully decoded slide-graph traversal
+- animations, transitions, and exact object placement are not yet modeled
 
 ## Format Notes
 
