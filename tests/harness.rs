@@ -166,3 +166,45 @@ fn keynote_slide_template_distinction() -> Result<(), Error> {
     }
     Ok(())
 }
+
+#[test]
+fn keynote_slides_expose_media_descriptions() -> Result<(), Error> {
+    // blueprint.key real slides carry image alt-text; validate at least the
+    // first real slide with media has the expected descriptions.
+    let presentation = keynote::Document::open("examples/keynote/blueprint.key")?.presentation()?;
+    let slide = presentation
+        .slides()
+        .iter()
+        .find(|s| !s.is_template() && !s.media_descriptions().is_empty())
+        .expect("blueprint.key should have a non-template slide with media");
+
+    let media = slide.media_descriptions();
+    assert!(
+        media.contains(&"Modern living room with large windows".to_owned()),
+        "expected 'Modern living room with large windows' in media descriptions, got: {media:?}"
+    );
+    assert!(
+        media.contains(&"Wooden walkway with cabinets on either side and a staircase in the background".to_owned()),
+        "expected walkway description in media descriptions, got: {media:?}"
+    );
+
+    // parchment.key: validate multi-image slide
+    let presentation = keynote::Document::open("examples/keynote/parchment.key")?.presentation()?;
+    let slide = presentation
+        .slides()
+        .iter()
+        .find(|s| !s.is_template() && s.media_descriptions().len() >= 3)
+        .expect("parchment.key should have a real slide with 3+ media descriptions");
+
+    assert_eq!(
+        slide.media_descriptions(),
+        &[
+            "Pyramids of Giza silhouetted against an orange sunset",
+            "Close-up of a pyramid in Giza",
+            "Sphinx in front of the pyramids of Giza with a clear blue sky in the background",
+        ],
+        "parchment.key multi-image slide descriptions mismatch"
+    );
+
+    Ok(())
+}
