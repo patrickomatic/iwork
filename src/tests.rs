@@ -618,6 +618,12 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         .find_map(|formula_id| spreadsheet.formula_record(*formula_id));
     let record = joined_formula.ok_or(Error::InvalidIwa("missing joined formula record"))?;
     assert!(formula_ids.contains(&record.formula_id()));
+    assert!(
+        cells
+            .iter()
+            .any(|cell| spreadsheet.formula_record_for_cell(cell).is_some()),
+        "expected at least one cell with a formula id to resolve to a FormulaRecord"
+    );
     assert!(record.object_id() > 0);
     assert!(
         formula_records

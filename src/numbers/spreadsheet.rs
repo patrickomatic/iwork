@@ -5,7 +5,7 @@ use super::formula::{FormulaAuxiliaryRecord, FormulaRecord};
 use super::header_storage::{HeaderStorageBucket, TableHeaderStorage};
 use super::sheet::{Sheet, table_info_to_model_ids};
 use super::table::{
-    CellFormat, Table, decode_cell_format_datalist, decode_rich_text_datalist,
+    CellFormat, CellValue, Table, decode_cell_format_datalist, decode_rich_text_datalist,
     decode_string_datalist,
 };
 use super::table_model::TableModel;
@@ -124,6 +124,12 @@ impl Spreadsheet {
         self.formula_records()
             .into_iter()
             .find(|record| record.formula_id() == formula_id)
+    }
+
+    /// Resolves a cached formula-result cell to its type-4008 formula record.
+    pub fn formula_record_for_cell(&self, cell: &CellValue) -> Option<FormulaRecord> {
+        cell.formula_id()
+            .and_then(|formula_id| self.formula_record(formula_id))
     }
 
     /// Decodes type-4009 formula auxiliary records from `Index/CalculationEngine.iwa`.
