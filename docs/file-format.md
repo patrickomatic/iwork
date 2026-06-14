@@ -325,6 +325,8 @@ one of the currently grounded type names for known roles.
 `Spreadsheet::object_references(id)` scans that object's payload for varints
 matching known package object ids, providing a raw object graph edge list for
 follow-on semantic decoders.
+`Spreadsheet::object_message(id)` decodes the located object's raw payload as a
+protobuf message when the object is present and structurally valid.
 
 ## TableModel (message type 6001)
 

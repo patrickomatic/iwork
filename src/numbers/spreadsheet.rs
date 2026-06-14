@@ -12,7 +12,7 @@ use super::table_model::TableModel;
 use super::types::message_type_name;
 use crate::iwa::{IwaArchive, IwaObject};
 use crate::package::Package;
-use crate::protobuf::read_varint;
+use crate::protobuf::{ProtoMessage, read_varint};
 use crate::stylesheet::StylesheetCatalog;
 use crate::Error;
 
@@ -220,6 +220,12 @@ impl Spreadsheet {
             .chain(self.table_archives.iter().map(|archive| &archive.archive))
             .flat_map(IwaArchive::objects)
             .find(|object| object.identifier == Some(object_id))
+    }
+
+    /// Decodes an object's raw payload as a protobuf message.
+    pub fn object_message(&self, object_id: u64) -> Option<ProtoMessage> {
+        self.object_by_id(object_id)
+            .and_then(|object| ProtoMessage::decode(&object.payload).ok())
     }
 
     /// Resolves an object id to the decoded `.iwa` archive path that contains it.

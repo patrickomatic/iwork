@@ -995,6 +995,13 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                     .is_some_and(|message_type| (5020..=5030).contains(&message_type))),
                 "{path} SheetDrawable downstream objects should stay within the 5020-5030 cluster"
             );
+            assert!(
+                drawable_objects.iter().all(|object| object
+                    .identifier
+                    .and_then(|id| spreadsheet.object_message(id))
+                    .is_some()),
+                "{path} SheetDrawable downstream objects should decode as protobuf messages"
+            );
         }
         for sheet in spreadsheet.sheets() {
             assert!(
