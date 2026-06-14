@@ -303,10 +303,11 @@ plus object references. The currently grounded fields are:
 
 `numbers::Spreadsheet::sheets()` exposes the decoded sheet name, the retained
 raw object references, `TableInfo` ids, and the `TableModel` ids resolved
-through the object graph. `Spreadsheet::object_message_type(id)` resolves any
-retained object id to its raw iWork message type when the target object is
-present in the decoded Numbers archives; `object_message_type_name(id)` returns
-one of the currently grounded type names for known roles.
+through the object graph. `Spreadsheet::object_message_type(id)` and
+`object_archive_path(id)` resolve any retained object id to its raw iWork
+message type and containing `.iwa` archive when the target object is present in
+the decoded Numbers archives; `object_message_type_name(id)` returns one of the
+currently grounded type names for known roles.
 
 ## TableModel (message type 6001)
 

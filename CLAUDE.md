@@ -61,7 +61,7 @@ Integration tests live in `tests/harness.rs` and are fixture-driven against 9 re
 
 The Numbers reader has an evidence-backed table path:
 
-- `Spreadsheet::sheets()` decodes `Sheet` objects from `Index/Document.iwa`, with field 1 as the sheet name and field 2 retained as raw object references; the `TableInfo` subset is resolved through `TableInfo -> TableModel`, and `Spreadsheet::object_message_type(id)` resolves retained object ids back to their raw message type.
+- `Spreadsheet::sheets()` decodes `Sheet` objects from `Index/Document.iwa`, with field 1 as the sheet name and field 2 retained as raw object references; the `TableInfo` subset is resolved through `TableInfo -> TableModel`, and `Spreadsheet::object_message_type(id)` / `object_archive_path(id)` resolve retained object ids back to their raw message type and containing archive.
 - `Spreadsheet::table_models()` decodes `TableModel` objects from `Index/CalculationEngine.iwa` (with `Document.iwa` fallback), including table UUID, name, row/column counts, header row/column counts, tile ids, header storage bucket ids, and DataList references.
 - `Spreadsheet::decoded_tables()` is the authoritative table view: it follows each model's tiles and scoped DataLists, merges multi-tile row ranges, and avoids cross-table string-key collisions.
 - `Spreadsheet::formula_records()` decodes type-4008 formula records from `Index/CalculationEngine.iwa`; field 1 is exposed as a raw `FormulaRecordKey`, field 2 matches formula ids stored on some formula-result cells, field 6.5 is retained as raw expression bytes, fields 7/8 are exposed as raw `FormulaBoundsPair` values, and referenced type-4009 auxiliary record ids are retained.

@@ -979,6 +979,13 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                     "{path} sheet {:?} reference {object_id} should resolve to an object type",
                     sheet.name(),
                 );
+                assert!(
+                    spreadsheet
+                        .object_archive_path(*object_id)
+                        .is_some_and(|archive_path| archive_path.ends_with(".iwa")),
+                    "{path} sheet {:?} reference {object_id} should resolve to an IWA archive path",
+                    sheet.name(),
+                );
             }
             for table_info_id in sheet.table_info_ids() {
                 assert_eq!(
