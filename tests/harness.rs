@@ -216,23 +216,28 @@ fn keynote_slides_expose_media_descriptions() -> Result<(), Error> {
 #[test]
 fn pages_exposes_text_fragments() -> Result<(), Error> {
     let body = pages::Document::open("examples/pages/eternal_sunshine.pages")?.document()?;
-    let frags = body.text_fragments();
 
-    assert!(
-        frags.contains(&"Eternal Shine".to_owned()),
-        "expected document title in text_fragments, got: {frags:?}"
+    assert_eq!(
+        body.title(),
+        Some("Eternal Shine"),
+        "expected title to be 'Eternal Shine', got: {:?}",
+        body.title()
     );
+
+    assert!(!body.headings().is_empty(), "expected non-empty headings");
+
+    let frags = body.text_fragments();
     assert!(
         frags.contains(&"Prologue".to_owned()),
-        "expected 'Prologue' heading in text_fragments, got: {frags:?}"
+        "expected 'Prologue' in text_fragments, got: {frags:?}"
     );
     assert!(
         frags.contains(&"Chapter 1".to_owned()),
-        "expected 'Chapter 1' heading in text_fragments, got: {frags:?}"
+        "expected 'Chapter 1' in text_fragments, got: {frags:?}"
     );
     assert!(
         frags.contains(&"About the Author".to_owned()),
-        "expected 'About the Author' heading in text_fragments, got: {frags:?}"
+        "expected 'About the Author' in text_fragments, got: {frags:?}"
     );
 
     Ok(())

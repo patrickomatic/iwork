@@ -363,12 +363,12 @@ fn numbers_spreadsheet_exposes_core_archives() -> Result<(), Error> {
 fn pages_document_decodes_structural_utf8_fields() -> Result<(), Error> {
     let modern = pages::Document::open(MODERN_NOVEL_EXAMPLE)?.document()?;
     assert_eq!(modern.title(), None);
-    assert!(modern.headings().is_empty());
+    assert!(!modern.headings().is_empty());
     assert!(!modern.text_fragments().is_empty());
 
     let term_paper = pages::Document::open("examples/pages/term_paper.pages")?.document()?;
-    assert_eq!(term_paper.title(), None);
-    assert!(term_paper.headings().is_empty());
+    assert_eq!(term_paper.title(), Some("Geology 101 Report"));
+    assert!(!term_paper.headings().is_empty());
     assert!(!term_paper.text_fragments().is_empty());
 
     Ok(())

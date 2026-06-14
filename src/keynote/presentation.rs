@@ -19,6 +19,9 @@ const THEME_TYPE: u64 = 10;
 ///   Confirmed by correlating decoded IDs with known 2001 objects per slide.
 const DRAWABLE_TYPE: u64 = 7;
 
+/// `field 2` value in a type-7 drawable that identifies the speaker-notes placeholder.
+const PLACEHOLDER_NOTES: u64 = 1;
+
 /// `field 2` value in a type-7 drawable that identifies the title placeholder.
 const PLACEHOLDER_TITLE: u64 = 2;
 
@@ -118,12 +121,17 @@ fn decode_theme_name(package: &Package) -> Result<Option<String>, Error> {
     Ok(name)
 }
 
-/// Decodes the slide title from type-7 drawable objects.
+/// Decodes text from the type-7 drawable placeholder matching `kind`.
 ///
-/// Finds the type-7 with `field 2 == PLACEHOLDER_TITLE (2)`, follows its
-/// `field 1.4.1` reference to the associated type-2001, and reads field 3.
-fn decode_slide_title(archive: &IwaArchive) -> Option<String> {
-    // Build a map from 2001 object ID → text so we can look up by reference.
+/// Builds a map from type-2001 object ID → formatted text, then finds the
+/// type-7 drawable whose `field 2` equals `kind` and follows its
+/// `field 1.4.1` cross-reference into the 2001 map.
+///
+/// `sep` is used to join multiple text fragments within the same 2001 object.
+/// Use `" "` for single-line placeholders (title), `"\n"` for multi-paragraph
+/// ones (speaker notes).
+fn decode_placeholder_text(archive: &IwaArchive, kind: u64, sep: &str) -> Option<String> {
+    // Build a map from 2001 object ID → formatted text.
     let text_by_id: std::collections::HashMap<u64, String> = archive
         .objects()
         .iter()
@@ -140,20 +148,19 @@ fn decode_slide_title(archive: &IwaArchive) -> Option<String> {
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
-                .join(" ");
+                .join(sep);
             if text.is_empty() { None } else { Some((id, text)) }
         })
         .collect();
 
-    // Find the title drawable and look up its 2001 text.
+    // Find the drawable with the matching kind and look up its 2001 text.
     archive
         .objects()
         .iter()
         .filter(|o| o.message_type == Some(DRAWABLE_TYPE))
         .find_map(|o| {
             let msg = ProtoMessage::decode(&o.payload).ok()?;
-            let kind = msg.field(2)?.value.as_varint()?;
-            if kind != PLACEHOLDER_TITLE {
+            if msg.field(2)?.value.as_varint()? != kind {
                 return None;
             }
             let ref_id = msg
@@ -164,6 +171,14 @@ fn decode_slide_title(archive: &IwaArchive) -> Option<String> {
                 .and_then(|m| m.field(1).and_then(|f| f.value.as_varint()))?;
             text_by_id.get(&ref_id).cloned()
         })
+}
+
+fn decode_slide_title(archive: &IwaArchive) -> Option<String> {
+    decode_placeholder_text(archive, PLACEHOLDER_TITLE, " ")
+}
+
+fn decode_speaker_notes(archive: &IwaArchive) -> Option<String> {
+    decode_placeholder_text(archive, PLACEHOLDER_NOTES, "\n")
 }
 
 /// Decodes text from TSWP text storage objects (type-2001) in a slide archive.
@@ -225,6 +240,7 @@ pub struct Slide {
     pub(crate) is_template: bool,
     pub(crate) layout_name: Option<String>,
     pub(crate) title: Option<String>,
+    pub(crate) speaker_notes: Option<String>,
     pub(crate) text_fragments: Vec<String>,
     pub(crate) media_descriptions: Vec<String>,
 }
@@ -241,6 +257,7 @@ impl Slide {
             is_template: false,
             layout_name: None,
             title: if title.is_empty() { None } else { Some(title.to_owned()) },
+            speaker_notes: None,
             text_fragments,
             media_descriptions: Vec::new(),
         }
@@ -248,6 +265,7 @@ impl Slide {
 
     fn from_archive(path: String, archive: &IwaArchive) -> Self {
         let title = decode_slide_title(archive);
+        let speaker_notes = decode_speaker_notes(archive);
         let text_fragments = decode_tswp_text(archive);
         let media_descriptions = decode_media_descriptions(archive);
 
@@ -256,6 +274,7 @@ impl Slide {
             layout_name: None,
             media_descriptions,
             path,
+            speaker_notes,
             text_fragments,
             title,
         }
@@ -283,6 +302,16 @@ impl Slide {
     /// type-2001 object contains no text.
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
+    }
+
+    /// Speaker notes for the slide, sourced from the type-7 drawable with
+    /// `field 2 == 1` (notes placeholder) → `field 1.4.1` object ID →
+    /// type-2001 field 3.
+    ///
+    /// Paragraphs are joined with `\n`. Returns `None` when the notes area is
+    /// empty.
+    pub fn speaker_notes(&self) -> Option<&str> {
+        self.speaker_notes.as_deref()
     }
 
     /// All unique text fragments from the slide, in archive order.
