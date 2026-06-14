@@ -17,7 +17,7 @@
 use std::path::Path;
 
 use crate::package::Package;
-use crate::{DocumentKind, Error, InspectionReport};
+use crate::{DocumentKind, Error, InspectionReport, IWorkDocument};
 
 mod formula;
 mod drawable;
@@ -76,5 +76,34 @@ impl Document {
 
     pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
         self.package.inspect(path)
+    }
+}
+
+impl IWorkDocument for Document {
+    fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+        Self::open(path)
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error> {
+        Self::from_bytes(bytes)
+    }
+
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        // Build a Workbook from the decoded spreadsheet and re-encode.
+        let spreadsheet = self.spreadsheet()?;
+        let mut workbook = write::Workbook::new();
+        for (model, table) in spreadsheet.decoded_tables() {
+            let name = model.name().unwrap_or("Table");
+            let mut wt = write::WritableTable::new(name);
+            for row in table.rows() {
+                wt.push_row(row.cells.clone());
+            }
+            workbook.add_table(wt);
+        }
+        workbook.to_numbers_bytes()
+    }
+
+    fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
+        Self::inspect(self, path)
     }
 }

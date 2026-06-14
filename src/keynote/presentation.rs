@@ -51,6 +51,16 @@ pub struct Presentation {
 }
 
 impl Presentation {
+    /// Sets the theme name for encoding.
+    pub fn set_theme_name(&mut self, name: Option<String>) {
+        self.theme_name = name;
+    }
+
+    /// Appends a slide (real or template) for encoding.
+    pub fn add_slide(&mut self, slide: Slide) {
+        self.slides.push(slide);
+    }
+
     pub(crate) fn from_package(package: &Package) -> Result<Self, Error> {
         let theme_name = decode_theme_name(package)?;
 
@@ -211,15 +221,31 @@ fn decode_media_descriptions(archive: &IwaArchive) -> Vec<String> {
 /// Structured fields decoded from a Keynote slide archive.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Slide {
-    path: String,
-    is_template: bool,
-    layout_name: Option<String>,
-    title: Option<String>,
-    text_fragments: Vec<String>,
-    media_descriptions: Vec<String>,
+    pub(crate) path: String,
+    pub(crate) is_template: bool,
+    pub(crate) layout_name: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) text_fragments: Vec<String>,
+    pub(crate) media_descriptions: Vec<String>,
 }
 
 impl Slide {
+    /// Creates a new non-template slide for encoding.
+    ///
+    /// `text_fragments` should include the title as well as body fragments
+    /// (the encoder separates them); the slide gets path `""` since it will
+    /// be assigned a real path by the package writer.
+    pub fn new_real(title: &str, text_fragments: Vec<String>) -> Self {
+        Self {
+            path: String::new(),
+            is_template: false,
+            layout_name: None,
+            title: if title.is_empty() { None } else { Some(title.to_owned()) },
+            text_fragments,
+            media_descriptions: Vec::new(),
+        }
+    }
+
     fn from_archive(path: String, archive: &IwaArchive) -> Self {
         let title = decode_slide_title(archive);
         let text_fragments = decode_tswp_text(archive);

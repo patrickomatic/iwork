@@ -11,6 +11,7 @@
 
 use std::path::Path;
 
+mod encode;
 mod error;
 mod inspect;
 mod plist;
@@ -30,6 +31,30 @@ pub use inspect::InspectionReport;
 pub use kind::DocumentKind;
 pub use package::PackageSupport;
 pub use plist::PropertiesPlist;
+
+/// Common interface shared by all three iWork document types.
+///
+/// Implemented by [`numbers::Document`], [`pages::Document`], and
+/// [`keynote::Document`].
+pub trait IWorkDocument: Sized {
+    /// Opens a document from disk.
+    fn open(path: impl AsRef<Path>) -> Result<Self, Error>;
+    /// Parses a document from raw ZIP bytes.
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error>;
+    /// Serializes the document content to raw ZIP bytes that can be written to
+    /// disk and re-opened by this crate.
+    fn to_bytes(&self) -> Result<Vec<u8>, Error>;
+    /// Writes the document to disk as a `.numbers`, `.pages`, or `.key` file.
+    ///
+    /// This is a convenience wrapper around [`to_bytes`](Self::to_bytes) and
+    /// [`std::fs::write`].
+    fn save(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+        Ok(std::fs::write(path, self.to_bytes()?)?)
+    }
+    /// Returns a small inspection report: document kind, UUID, format version,
+    /// and package layout classification.
+    fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error>;
+}
 
 /// A generic iWork package: format-version metadata and document-kind detection.
 ///
