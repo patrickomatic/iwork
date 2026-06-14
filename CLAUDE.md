@@ -65,6 +65,7 @@ The Numbers reader has an evidence-backed table path:
 - `Spreadsheet::object_references(id)` scans an object's raw payload for known package object ids and exposes the raw graph edges for follow-on semantic decoders.
 - Message type 5021 is grounded as `SheetDrawable`: a non-table `Sheet.field 2` reference and hub for the 5020-5030 drawing/chart object cluster. Its exact chart/drawing semantics are still unmapped.
 - `Spreadsheet::sheet_drawables()` decodes type-5021 sheet drawables structurally and retains top-level field 1 and field 10000 payloads as raw bytes.
+- `SheetDrawable::info_message()` and `payload_message()` decode those raw payloads as nested protobuf messages while leaving subtype semantics unnamed.
 - `Spreadsheet::sheet_drawable_objects(drawable_id)` follows a type-5021 drawable into referenced raw 5020-5030 drawing/chart cluster objects.
 - `Spreadsheet::table_models()` decodes `TableModel` objects from `Index/CalculationEngine.iwa` (with `Document.iwa` fallback), including table UUID, name, row/column counts, header row/column counts, tile ids, header storage bucket ids, and DataList references.
 - `Spreadsheet::decoded_tables()` is the authoritative table view: it follows each model's tiles and scoped DataLists, merges multi-tile row ranges, and avoids cross-table string-key collisions.

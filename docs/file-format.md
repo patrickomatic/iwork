@@ -194,6 +194,8 @@ object references the 5020-5030 drawing/chart object cluster. The exact chart
 and drawing subtype semantics of that cluster are still unmapped.
 `Spreadsheet::sheet_drawables()` decodes those objects structurally and retains
 their high-confidence top-level field 1 and field 10000 payloads as raw bytes.
+`SheetDrawable::info_message()` and `payload_message()` decode those retained
+payloads as nested protobuf messages without assigning subtype semantics.
 `Spreadsheet::sheet_drawable_objects(drawable_id)` follows the raw object graph
 from a drawable into its referenced 5020-5030 drawing/chart cluster objects.
 
