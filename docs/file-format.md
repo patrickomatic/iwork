@@ -192,6 +192,8 @@ Type 5021 is grounded as `SheetDrawable`: current fixtures reference every 5021
 object from `Sheet.field 2` as a non-table sheet-level object, and each 5021
 object references the 5020-5030 drawing/chart object cluster. The exact chart
 and drawing subtype semantics of that cluster are still unmapped.
+`Spreadsheet::sheet_drawables()` decodes those objects structurally and retains
+their high-confidence top-level field 1 and field 10000 payloads as raw bytes.
 
 Other in-stream types (text storages, drawables, styles, and number formats)
 remain unnamed until confirmed the same way rather than guessed from a single

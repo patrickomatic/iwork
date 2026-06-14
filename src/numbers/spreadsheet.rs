@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::drawable::{SheetDrawable, SHEET_DRAWABLE_TYPE};
 use super::formula::{FormulaAuxiliaryRecord, FormulaRecord};
 use super::header_storage::HeaderStorageBucket;
 use super::sheet::{table_info_to_model_ids, Sheet};
@@ -154,6 +155,27 @@ impl Spreadsheet {
         let mut sheets = Sheet::collect(&self.document, &table_info_to_model_ids);
         sheets.sort_by_key(Sheet::id);
         sheets
+    }
+
+    /// Decodes sheet-level drawable objects referenced from the document's sheets.
+    pub fn sheet_drawables(&self) -> Vec<SheetDrawable> {
+        let mut drawables: Vec<SheetDrawable> = self
+            .sheets()
+            .into_iter()
+            .flat_map(|sheet| sheet.non_table_object_reference_ids().collect::<Vec<_>>())
+            .filter_map(|id| self.sheet_drawable(id))
+            .collect();
+        drawables.sort_by_key(SheetDrawable::object_id);
+        drawables.dedup_by_key(|drawable| drawable.object_id());
+        drawables
+    }
+
+    /// Decodes one type-5021 sheet-level drawable by object id.
+    pub fn sheet_drawable(&self, object_id: u64) -> Option<SheetDrawable> {
+        let object = self.object_by_id(object_id)?;
+        (object.message_type == Some(SHEET_DRAWABLE_TYPE))
+            .then(|| SheetDrawable::from_object(&object))
+            .flatten()
     }
 
     /// Heuristic style catalog decoded from `Index/DocumentStylesheet.iwa`.
