@@ -366,6 +366,9 @@ the first decoded join point between tile cells and the formula graph:
 - Field 3: raw formula-kind/classifier varint. Expression semantics are not
   decoded yet.
 - Field 1: raw two-varint key exposed as `FormulaRecordKey`.
+- Field 6 → field 5: raw expression payload bytes. Some records carry an empty
+  payload; non-empty payloads are retained as `FormulaRecord::expression_bytes()`
+  but the token grammar is still opaque.
 - Fields 7 and 8: each contains two nested four-varint bounds records. Most
   records use sentinel maxima `(32767, 2147483647, 32767, 2147483647)`; a
   subset carries concrete bounds. Their exact formula-graph role is not named

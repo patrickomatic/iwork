@@ -6,6 +6,14 @@ use crate::{Document, DocumentKind, Error, keynote, numbers, pages};
 
 const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
 const ATTENDANCE_EXAMPLE: &str = "examples/numbers/attendance.numbers";
+const NUMBERS_EXAMPLES: &[&str] = &[
+    "examples/numbers/attendance.numbers",
+    "examples/numbers/more_types.numbers",
+    "examples/numbers/my_stocks.numbers",
+    "examples/numbers/personal_budget.numbers",
+    "examples/numbers/pivot_table.numbers",
+    "examples/numbers/table_and_charts.numbers",
+];
 const MODERN_NOVEL_EXAMPLE: &str = "examples/pages/modern_novel.pages";
 const BASIC_WHITE_EXAMPLE: &str = "examples/keynote/basic_white.key";
 const DEFLATED_ZIP_ENTRY: &[u8] = &[
@@ -586,7 +594,9 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         "expected cached formula result cells, got {formula_results:?}"
     );
     assert!(
-        formula_results.iter().any(|cell| cell.as_number().is_some()),
+        formula_results
+            .iter()
+            .any(|cell| cell.as_number().is_some()),
         "expected a formula cell with a cached numeric result"
     );
     assert!(
@@ -620,6 +630,12 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
             .iter()
             .all(|record| record.record_key().field1() > 0 || record.record_key().field2() > 0),
         "every type-4008 formula record should expose a populated field-1 key"
+    );
+    assert!(
+        formula_records
+            .iter()
+            .all(|record| record.expression_bytes().is_empty()),
+        "more_types formula records should retain empty expression payloads"
     );
     assert!(
         formula_records.iter().any(|record| {
@@ -673,13 +689,48 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         cur_val.is_finite(),
         "currency value should be a finite number, got {cur_val}"
     );
-    assert_eq!(cur_code.as_deref(), Some("USD"), "expected USD currency code");
+    assert_eq!(
+        cur_code.as_deref(),
+        Some("USD"),
+        "expected USD currency code"
+    );
 
     // Percentage cell: decoded as CellValue::Percentage with decimal fraction.
     let pct = cells.iter().find_map(|c| c.as_percentage());
     assert!(
         pct.is_some_and(|p| (p - 0.33).abs() < 0.01),
         "expected a percentage cell ~0.33, got {pct:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), Error> {
+    let mut saw_formula_record = false;
+    let mut saw_empty_payload = false;
+    let mut saw_non_empty_payload = false;
+
+    for path in NUMBERS_EXAMPLES {
+        let spreadsheet = numbers::Document::open(path)?.spreadsheet()?;
+        for record in spreadsheet.formula_records() {
+            saw_formula_record = true;
+            saw_empty_payload |= record.expression_bytes().is_empty();
+            saw_non_empty_payload |= !record.expression_bytes().is_empty();
+        }
+    }
+
+    assert!(
+        saw_formula_record,
+        "expected formula records across fixtures"
+    );
+    assert!(
+        saw_empty_payload,
+        "expected at least one retained empty formula expression payload"
+    );
+    assert!(
+        saw_non_empty_payload,
+        "expected at least one retained non-empty formula expression payload"
     );
 
     Ok(())
@@ -806,7 +857,10 @@ fn multi_tile_table_merges_rows_with_absolute_indices() -> Result<(), Error> {
     // reset each tile's indices to 0, so 256 would be missing and 0 would repeat.
     for (position, index) in indices.iter().enumerate() {
         let expected = u64::try_from(position).unwrap_or(u64::MAX);
-        assert_eq!(*index, expected, "row {position} index reset (per-tile bug)");
+        assert_eq!(
+            *index, expected,
+            "row {position} index reset (per-tile bug)"
+        );
     }
 
     Ok(())
@@ -900,15 +954,6 @@ fn numbers_sheets_expose_names_and_table_membership() -> Result<(), Error> {
 
 #[test]
 fn table_models_reference_header_storage_buckets() -> Result<(), Error> {
-    const NUMBERS_EXAMPLES: &[&str] = &[
-        "examples/numbers/attendance.numbers",
-        "examples/numbers/more_types.numbers",
-        "examples/numbers/my_stocks.numbers",
-        "examples/numbers/personal_budget.numbers",
-        "examples/numbers/pivot_table.numbers",
-        "examples/numbers/table_and_charts.numbers",
-    ];
-
     let mut non_empty_buckets = 0usize;
     let mut saw_tall_table_last_index = false;
 
