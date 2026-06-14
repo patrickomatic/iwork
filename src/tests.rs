@@ -715,6 +715,15 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
         let spreadsheet = numbers::Document::open(path)?.spreadsheet()?;
         for record in spreadsheet.formula_records() {
             saw_formula_record = true;
+            assert_eq!(
+                record
+                    .expression()
+                    .message()
+                    .field(5)
+                    .and_then(|field| field.value.as_bytes()),
+                Some(record.expression_bytes()),
+                "{path} FormulaRecord expression bytes should come from field 6.5"
+            );
             saw_empty_payload |= record.expression_bytes().is_empty();
             saw_non_empty_payload |= !record.expression_bytes().is_empty();
         }

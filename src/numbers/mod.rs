@@ -32,7 +32,7 @@ mod write;
 pub use drawable::SheetDrawable;
 pub use formula::{
     FormulaAuxiliaryEntry, FormulaAuxiliaryEntryPayload, FormulaAuxiliaryRecord, FormulaBounds,
-    FormulaBoundsPair, FormulaRecord, FormulaRecordKey,
+    FormulaBoundsPair, FormulaExpression, FormulaRecord, FormulaRecordKey,
 };
 pub use header_storage::{HeaderStorageBucket, HeaderStorageEntry, TableHeaderStorage};
 pub use sheet::Sheet;

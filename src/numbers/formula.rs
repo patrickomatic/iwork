@@ -41,7 +41,7 @@ pub struct FormulaRecord {
     record_key: FormulaRecordKey,
     formula_id: u32,
     formula_kind: u64,
-    expression_bytes: Vec<u8>,
+    expression: FormulaExpression,
     field7_bounds: Option<FormulaBoundsPair>,
     field8_bounds: Option<FormulaBoundsPair>,
     auxiliary_record_ids: Vec<u64>,
@@ -81,7 +81,7 @@ impl FormulaRecord {
             record_key,
             formula_id,
             formula_kind,
-            expression_bytes: decode_expression_bytes(&message)?,
+            expression: decode_expression(&message)?,
             field7_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_7),
             field8_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_8),
             auxiliary_record_ids: referenced_auxiliary_ids(object, auxiliary_ids),
@@ -111,12 +111,17 @@ impl FormulaRecord {
         self.formula_kind
     }
 
+    /// Structural field-6 expression wrapper.
+    pub fn expression(&self) -> &FormulaExpression {
+        &self.expression
+    }
+
     /// Raw expression payload bytes stored in field 6.5.
     ///
     /// This byte stream is structurally stable across current fixtures but its
     /// token grammar is not decoded yet.
     pub fn expression_bytes(&self) -> &[u8] {
-        &self.expression_bytes
+        self.expression.bytes()
     }
 
     /// Raw bounds pair stored in field 7.
@@ -157,6 +162,25 @@ impl FormulaRecordKey {
     /// Raw key field 2.
     pub fn field2(&self) -> u64 {
         self.field2
+    }
+}
+
+/// Structural expression wrapper stored in `FormulaRecord.field 6`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormulaExpression {
+    message: ProtoMessage,
+    bytes: Vec<u8>,
+}
+
+impl FormulaExpression {
+    /// Decoded field-6 wrapper message.
+    pub fn message(&self) -> &ProtoMessage {
+        &self.message
+    }
+
+    /// Raw expression payload bytes stored in wrapper field 5.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
     }
 }
 
@@ -390,15 +414,19 @@ fn decode_record_key(message: &ProtoMessage) -> Option<FormulaRecordKey> {
     })
 }
 
-fn decode_expression_bytes(message: &ProtoMessage) -> Option<Vec<u8>> {
+fn decode_expression(message: &ProtoMessage) -> Option<FormulaExpression> {
     let expression = message
         .field(FIELD_EXPRESSION)
         .and_then(|field| field.value.as_bytes())
         .and_then(|bytes| ProtoMessage::decode(bytes).ok())?;
-    expression
+    let bytes = expression
         .field(EXPRESSION_FIELD_BYTES)
         .and_then(|field| field.value.as_bytes())
-        .map(<[u8]>::to_vec)
+        .map(<[u8]>::to_vec)?;
+    Some(FormulaExpression {
+        message: expression,
+        bytes,
+    })
 }
 
 fn decode_auxiliary_entry_payload(message: &ProtoMessage) -> Option<FormulaAuxiliaryEntryPayload> {
