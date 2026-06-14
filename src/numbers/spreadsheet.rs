@@ -188,6 +188,15 @@ impl Spreadsheet {
             .collect()
     }
 
+    /// Resolved metadata for raw 5020-5030 objects referenced by a sheet drawable.
+    pub fn sheet_drawable_object_info(&self, drawable_id: u64) -> Vec<ObjectInfo> {
+        self.sheet_drawable_objects(drawable_id)
+            .into_iter()
+            .filter_map(|object| object.identifier)
+            .filter_map(|object_id| self.object_info(object_id))
+            .collect()
+    }
+
     /// Heuristic style catalog decoded from `Index/DocumentStylesheet.iwa`.
     pub fn stylesheet_catalog(&self) -> StylesheetCatalog {
         StylesheetCatalog::from_archive(&self.stylesheet)
