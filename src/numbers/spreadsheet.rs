@@ -1,20 +1,20 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use super::drawable::{SheetDrawable, SHEET_DRAWABLE_TYPE};
+use super::drawable::{SHEET_DRAWABLE_TYPE, SheetDrawable};
 use super::formula::{FormulaAuxiliaryRecord, FormulaRecord};
 use super::header_storage::{HeaderStorageBucket, TableHeaderStorage};
-use super::sheet::{table_info_to_model_ids, Sheet};
+use super::sheet::{Sheet, table_info_to_model_ids};
 use super::table::{
-    decode_cell_format_datalist, decode_rich_text_datalist, decode_string_datalist, CellFormat,
-    Table,
+    CellFormat, Table, decode_cell_format_datalist, decode_rich_text_datalist,
+    decode_string_datalist,
 };
 use super::table_model::TableModel;
 use super::types::message_type_name;
+use crate::Error;
 use crate::iwa::{IwaArchive, IwaObject};
 use crate::package::Package;
-use crate::protobuf::{read_varint, ProtoMessage};
+use crate::protobuf::{ProtoMessage, read_varint};
 use crate::stylesheet::StylesheetCatalog;
-use crate::Error;
 
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 const DOCUMENT_METADATA_ENTRY: &str = "Index/DocumentMetadata.iwa";
@@ -520,7 +520,10 @@ mod tests {
             .unwrap();
         assert!(!spreadsheet.table_archives().is_empty());
         assert!(
-            spreadsheet.table_archives().iter().all(|a| a.path().starts_with("Index/Tables/")),
+            spreadsheet
+                .table_archives()
+                .iter()
+                .all(|a| a.path().starts_with("Index/Tables/")),
             "all table archives should live under Index/Tables/"
         );
     }
@@ -569,6 +572,9 @@ mod tests {
             .spreadsheet()
             .unwrap();
         let catalog = spreadsheet.stylesheet_catalog();
-        assert!(!catalog.font_names.is_empty(), "stylesheet should reference at least one font");
+        assert!(
+            !catalog.font_names.is_empty(),
+            "stylesheet should reference at least one font"
+        );
     }
 }

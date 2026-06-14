@@ -301,7 +301,10 @@ mod tests {
         // field 2, wire type 2, length 5, bytes "hello"
         let bytes = [0x12, 0x05, b'h', b'e', b'l', b'l', b'o'];
         let msg = ProtoMessage::decode(&bytes).unwrap();
-        assert_eq!(msg.field(2).unwrap().value.as_bytes(), Some(b"hello" as &[u8]));
+        assert_eq!(
+            msg.field(2).unwrap().value.as_bytes(),
+            Some(b"hello" as &[u8])
+        );
     }
 
     #[test]
@@ -309,7 +312,10 @@ mod tests {
         // field 1, wire type 5, value 0x01020304 little-endian
         let bytes = [0x0d, 0x04, 0x03, 0x02, 0x01];
         let msg = ProtoMessage::decode(&bytes).unwrap();
-        assert_eq!(msg.field(1).unwrap().value, ProtoValue::Fixed32(0x0102_0304));
+        assert_eq!(
+            msg.field(1).unwrap().value,
+            ProtoValue::Fixed32(0x0102_0304)
+        );
     }
 
     #[test]

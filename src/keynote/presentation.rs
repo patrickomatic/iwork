@@ -1,7 +1,7 @@
-use crate::iwa::IwaArchive;
-use crate::protobuf::ProtoMessage;
-use crate::package::Package;
 use crate::Error;
+use crate::iwa::IwaArchive;
+use crate::package::Package;
+use crate::protobuf::ProtoMessage;
 
 /// Message type of the Keynote theme descriptor object.
 ///
@@ -121,9 +121,15 @@ fn decode_theme_name(package: &Package) -> Result<Option<String>, Error> {
         .into_iter()
         .find(|obj| obj.message_type == Some(THEME_TYPE))
         .and_then(|obj| ProtoMessage::decode(&obj.payload).ok())
-        .and_then(|msg| msg.field(1).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+        .and_then(|msg| {
+            msg.field(1)
+                .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+        })
         .and_then(|inner| ProtoMessage::decode(&inner).ok())
-        .and_then(|msg| msg.field(3).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+        .and_then(|msg| {
+            msg.field(3)
+                .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+        })
         .and_then(|bytes| String::from_utf8(bytes).ok());
 
     Ok(name)
@@ -148,7 +154,10 @@ fn decode_placeholder_text(archive: &IwaArchive, kind: u64, sep: &str) -> Option
             let id = o.identifier?;
             let raw = ProtoMessage::decode(&o.payload)
                 .ok()
-                .and_then(|m| m.field(3).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|m| {
+                    m.field(3)
+                        .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                })
                 .and_then(|b| String::from_utf8(b).ok())?;
             let text: String = raw
                 .split(|c: char| c.is_control() && c != '\n')
@@ -157,7 +166,11 @@ fn decode_placeholder_text(archive: &IwaArchive, kind: u64, sep: &str) -> Option
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
                 .join(sep);
-            if text.is_empty() { None } else { Some((id, text)) }
+            if text.is_empty() {
+                None
+            } else {
+                Some((id, text))
+            }
         })
         .collect();
 
@@ -172,9 +185,13 @@ fn decode_placeholder_text(archive: &IwaArchive, kind: u64, sep: &str) -> Option
                 return None;
             }
             let ref_id = msg
-                .field(1).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                .field(1)
+                .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
                 .and_then(|b| ProtoMessage::decode(&b).ok())
-                .and_then(|m| m.field(4).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|m| {
+                    m.field(4)
+                        .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                })
                 .and_then(|b| ProtoMessage::decode(&b).ok())
                 .and_then(|m| m.field(1).and_then(|f| f.value.as_varint()))?;
             text_by_id.get(&ref_id).cloned()
@@ -192,7 +209,10 @@ fn decode_layout_name(archive: &IwaArchive) -> Option<String> {
         .iter()
         .find(|o| o.message_type == Some(SLIDE_TYPE))
         .and_then(|o| ProtoMessage::decode(&o.payload).ok())
-        .and_then(|msg| msg.field(10).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+        .and_then(|msg| {
+            msg.field(10)
+                .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+        })
         .and_then(|b| String::from_utf8(b).ok())
 }
 
@@ -213,10 +233,17 @@ fn decode_tswp_text(archive: &IwaArchive) -> Vec<String> {
     let mut seen = std::collections::BTreeSet::new();
     let mut fragments = Vec::new();
 
-    for obj in archive.objects().iter().filter(|o| o.message_type == Some(TSWP_TEXT_TYPE)) {
+    for obj in archive
+        .objects()
+        .iter()
+        .filter(|o| o.message_type == Some(TSWP_TEXT_TYPE))
+    {
         let Some(raw) = ProtoMessage::decode(&obj.payload)
             .ok()
-            .and_then(|msg| msg.field(3).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+            .and_then(|msg| {
+                msg.field(3)
+                    .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+            })
             .and_then(|bytes| String::from_utf8(bytes).ok())
         else {
             continue;
@@ -248,9 +275,15 @@ fn decode_media_descriptions(archive: &IwaArchive) -> Vec<String> {
         .filter_map(|obj| {
             ProtoMessage::decode(&obj.payload)
                 .ok()
-                .and_then(|msg| msg.field(1).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|msg| {
+                    msg.field(1)
+                        .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                })
                 .and_then(|inner| ProtoMessage::decode(&inner).ok())
-                .and_then(|msg| msg.field(8).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|msg| {
+                    msg.field(8)
+                        .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                })
                 .and_then(|bytes| String::from_utf8(bytes).ok())
         })
         .collect()
@@ -279,7 +312,11 @@ impl Slide {
             path: String::new(),
             is_template: false,
             layout_name: None,
-            title: if title.is_empty() { None } else { Some(title.to_owned()) },
+            title: if title.is_empty() {
+                None
+            } else {
+                Some(title.to_owned())
+            },
             speaker_notes: None,
             text_fragments,
             media_descriptions: Vec::new(),

@@ -5,16 +5,18 @@
 //! Each output line: `<object_id>  <style_key>`.
 //! If `filter` is given, only lines whose `style_key` contains that substring are
 //! printed (case-insensitive).
+use iwork::Error;
 use iwork::iwa::IwaArchive;
 use iwork::package::Package;
 use iwork::protobuf::ProtoMessage;
-use iwork::Error;
 
 const STYLESHEET_TYPE: u64 = 401;
 const STYLESHEET_ENTRY: &str = "Index/DocumentStylesheet.iwa";
 
 fn main() -> Result<(), Error> {
-    let path = std::env::args().nth(1).expect("usage: dump_stylesheet <file> [filter]");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: dump_stylesheet <file> [filter]");
     let filter = std::env::args().nth(2).unwrap_or_default().to_lowercase();
 
     let package = Package::open(&path)?;
@@ -35,8 +37,12 @@ fn main() -> Result<(), Error> {
     let mut entries: Vec<(u64, String)> = Vec::new();
 
     for entry in msg.fields_by_number(2) {
-        let Some(bytes_2) = entry.value.as_bytes() else { continue; };
-        let Ok(inner) = ProtoMessage::decode(bytes_2) else { continue; };
+        let Some(bytes_2) = entry.value.as_bytes() else {
+            continue;
+        };
+        let Ok(inner) = ProtoMessage::decode(bytes_2) else {
+            continue;
+        };
 
         let key_bytes = inner
             .field(1)
@@ -65,7 +71,10 @@ fn main() -> Result<(), Error> {
     let shown = if filter.is_empty() {
         entries.len()
     } else {
-        entries.iter().filter(|(_, k)| k.to_lowercase().contains(&filter)).count()
+        entries
+            .iter()
+            .filter(|(_, k)| k.to_lowercase().contains(&filter))
+            .count()
     };
     eprintln!("{} total named styles, {} shown", entries.len(), shown);
 

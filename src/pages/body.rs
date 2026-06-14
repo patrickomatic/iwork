@@ -1,8 +1,8 @@
-use std::collections::{BTreeSet, HashMap};
-use crate::iwa::IwaArchive;
-use crate::protobuf::{ProtoMessage, ProtoValue};
-use crate::package::Package;
 use crate::Error;
+use crate::iwa::IwaArchive;
+use crate::package::Package;
+use crate::protobuf::{ProtoMessage, ProtoValue};
+use std::collections::{BTreeSet, HashMap};
 
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 const STYLESHEET_ENTRY: &str = "Index/DocumentStylesheet.iwa";
@@ -89,7 +89,14 @@ impl Body {
 
         let (title, headings, text_fragments) = derive_classified_text(&paragraphs);
 
-        Ok(Self { template_name, paragraphs, title, headings, text_fragments, media_descriptions })
+        Ok(Self {
+            template_name,
+            paragraphs,
+            title,
+            headings,
+            text_fragments,
+            media_descriptions,
+        })
     }
 
     /// The iWork template identifier used to create this document, if present.
@@ -163,7 +170,10 @@ impl Body {
             .into_iter()
             .map(|text| Paragraph {
                 style_name: "Body".to_owned(),
-                runs: vec![TextRun { text, formatting: TextFormatting::default() }],
+                runs: vec![TextRun {
+                    text,
+                    formatting: TextFormatting::default(),
+                }],
             })
             .collect();
     }
@@ -221,9 +231,15 @@ fn decode_template_name(archive: &IwaArchive) -> Option<String> {
         .into_iter()
         .find(|obj| obj.message_type == Some(WP_BODY_TYPE))
         .and_then(|obj| ProtoMessage::decode(&obj.payload).ok())
-        .and_then(|msg| msg.field(1).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+        .and_then(|msg| {
+            msg.field(1)
+                .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+        })
         .and_then(|inner| ProtoMessage::decode(&inner).ok())
-        .and_then(|msg| msg.field(3).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+        .and_then(|msg| {
+            msg.field(3)
+                .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+        })
         .and_then(|bytes| String::from_utf8(bytes).ok())
 }
 
@@ -251,8 +267,12 @@ fn decode_paragraph_style_map(package: &Package) -> Result<HashMap<u64, String>,
     };
 
     for entry in msg.fields_by_number(2) {
-        let Some(inner_bytes) = entry.value.as_bytes() else { continue };
-        let Ok(inner) = ProtoMessage::decode(inner_bytes) else { continue };
+        let Some(inner_bytes) = entry.value.as_bytes() else {
+            continue;
+        };
+        let Ok(inner) = ProtoMessage::decode(inner_bytes) else {
+            continue;
+        };
 
         let key = inner
             .field(1)
@@ -310,12 +330,22 @@ fn decode_text_formatting(payload: &[u8]) -> TextFormatting {
         return TextFormatting::default();
     };
 
-    let bold = attrs.field(1).and_then(|f| f.value.as_varint()).map(|v| v != 0);
-    let italic = attrs.field(2).and_then(|f| f.value.as_varint()).map(|v| v != 0);
+    let bold = attrs
+        .field(1)
+        .and_then(|f| f.value.as_varint())
+        .map(|v| v != 0);
+    let italic = attrs
+        .field(2)
+        .and_then(|f| f.value.as_varint())
+        .map(|v| v != 0);
     let font_size_pt = attrs.field(3).and_then(|f| {
         if let ProtoValue::Fixed32(bits) = f.value {
             let size = f32::from_bits(bits);
-            if size > 0.0 && size.is_finite() { Some(size) } else { None }
+            if size > 0.0 && size.is_finite() {
+                Some(size)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -325,9 +355,18 @@ fn decode_text_formatting(payload: &[u8]) -> TextFormatting {
         .and_then(|f| f.value.as_bytes())
         .and_then(|b| std::str::from_utf8(b).ok())
         .map(ToOwned::to_owned);
-    let underline = attrs.field(13).and_then(|f| f.value.as_varint()).map(|v| v != 0);
+    let underline = attrs
+        .field(13)
+        .and_then(|f| f.value.as_varint())
+        .map(|v| v != 0);
 
-    TextFormatting { bold, italic, underline, font_name, font_size_pt }
+    TextFormatting {
+        bold,
+        italic,
+        underline,
+        font_name,
+        font_size_pt,
+    }
 }
 
 /// Decodes paragraph style runs from a type-2001 payload (field 5).
@@ -335,11 +374,17 @@ fn decode_text_formatting(payload: &[u8]) -> TextFormatting {
 /// Returns sorted `(byte_offset, style_name)` pairs. The style name is looked
 /// up via `style_map`; absent IDs produce an empty name.
 fn decode_style_runs(payload: &[u8], style_map: &HashMap<u64, String>) -> Vec<(usize, String)> {
-    let Ok(msg) = ProtoMessage::decode(payload) else { return Vec::new(); };
+    let Ok(msg) = ProtoMessage::decode(payload) else {
+        return Vec::new();
+    };
 
     let mut runs: Vec<(usize, String)> = msg
         .fields_by_number(5)
-        .filter_map(|f5| f5.value.as_bytes().and_then(|b| ProtoMessage::decode(b).ok()))
+        .filter_map(|f5| {
+            f5.value
+                .as_bytes()
+                .and_then(|b| ProtoMessage::decode(b).ok())
+        })
         .flat_map(|field5| {
             field5
                 .fields_by_number(1)
@@ -371,11 +416,17 @@ fn decode_style_runs(payload: &[u8], style_map: &HashMap<u64, String>) -> Vec<(u
 /// Returns sorted `(byte_offset, style_object_id)` pairs. Same wire structure
 /// as the paragraph style runs in field 5.
 fn decode_char_runs_raw(payload: &[u8]) -> Vec<(usize, u64)> {
-    let Ok(msg) = ProtoMessage::decode(payload) else { return Vec::new(); };
+    let Ok(msg) = ProtoMessage::decode(payload) else {
+        return Vec::new();
+    };
 
     let mut runs: Vec<(usize, u64)> = msg
         .fields_by_number(7)
-        .filter_map(|f7| f7.value.as_bytes().and_then(|b| ProtoMessage::decode(b).ok()))
+        .filter_map(|f7| {
+            f7.value
+                .as_bytes()
+                .and_then(|b| ProtoMessage::decode(b).ok())
+        })
         .flat_map(|field7| {
             field7
                 .fields_by_number(1)
@@ -408,7 +459,11 @@ fn style_at(runs: &[(usize, String)], byte_offset: usize) -> &str {
 
 /// Returns the char style object ID whose run covers `byte_offset`.
 fn char_id_at(char_runs: &[(usize, u64)], byte_offset: usize) -> Option<u64> {
-    char_runs.iter().rev().find(|(off, _)| *off <= byte_offset).map(|(_, id)| *id)
+    char_runs
+        .iter()
+        .rev()
+        .find(|(off, _)| *off <= byte_offset)
+        .map(|(_, id)| *id)
 }
 
 /// Splits a paragraph's raw text into [`TextRun`]s by following char style run
@@ -457,7 +512,10 @@ fn build_text_runs(
     if runs.is_empty() {
         let text = raw_text.trim().to_owned();
         if !text.is_empty() {
-            runs.push(TextRun { text, formatting: TextFormatting::default() });
+            runs.push(TextRun {
+                text,
+                formatting: TextFormatting::default(),
+            });
         }
     }
 
@@ -472,10 +530,17 @@ fn decode_paragraphs(
 ) -> Vec<Paragraph> {
     let mut paragraphs = Vec::new();
 
-    for obj in archive.objects().iter().filter(|o| o.message_type == Some(TSWP_TEXT_TYPE)) {
+    for obj in archive
+        .objects()
+        .iter()
+        .filter(|o| o.message_type == Some(TSWP_TEXT_TYPE))
+    {
         let Some(raw) = ProtoMessage::decode(&obj.payload)
             .ok()
-            .and_then(|msg| msg.field(3).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+            .and_then(|msg| {
+                msg.field(3)
+                    .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+            })
             .and_then(|bytes| String::from_utf8(bytes).ok())
         else {
             continue;
@@ -548,9 +613,15 @@ fn decode_media_descriptions(archive: &IwaArchive) -> Vec<String> {
         .filter_map(|obj| {
             ProtoMessage::decode(&obj.payload)
                 .ok()
-                .and_then(|msg| msg.field(1).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|msg| {
+                    msg.field(1)
+                        .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                })
                 .and_then(|inner| ProtoMessage::decode(&inner).ok())
-                .and_then(|msg| msg.field(8).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+                .and_then(|msg| {
+                    msg.field(8)
+                        .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                })
                 .and_then(|bytes| String::from_utf8(bytes).ok())
         })
         .collect()

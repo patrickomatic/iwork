@@ -2,14 +2,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::CellValue;
+use crate::Error;
 use crate::encode::{
-    self, encode_infra_archives, object_reference, properties_plist,
-    synthesize_header, synthesize_header_with_references,
+    self, encode_infra_archives, object_reference, properties_plist, synthesize_header,
+    synthesize_header_with_references,
 };
 use crate::iwa::{IwaArchive, IwaObjectReference};
-use crate::protobuf::{ProtoField, ProtoMessage};
 use crate::package::PackageWriter;
-use crate::Error;
+use crate::protobuf::{ProtoField, ProtoMessage};
 
 #[derive(Debug, Clone, Default)]
 pub struct Workbook {
@@ -182,7 +182,6 @@ const ANNOTATION_AUTHOR_STORAGE_ROOT_ID: u64 = 80;
 const CALCULATION_ENGINE_ROOT_ID: u64 = 1_000;
 const VIEW_STATE_ROOT_ID: u64 = 1_001;
 const STYLESHEET_ROOT_ID: u64 = 1_002;
-
 
 fn encode_document_archive() -> Result<Vec<u8>, Error> {
     let body = encode_document_body()?;
@@ -405,8 +404,11 @@ fn legacy_column_record(column: usize, offset: u16, cell: &CellValue) -> Result<
     record[2..4].copy_from_slice(&offset.to_le_bytes());
     record[4] = match cell {
         CellValue::Empty | CellValue::Error => 0,
-        CellValue::Number(_) | CellValue::Bool(_) | CellValue::Duration(_)
-        | CellValue::Percentage(_) | CellValue::Currency { .. } => 2,
+        CellValue::Number(_)
+        | CellValue::Bool(_)
+        | CellValue::Duration(_)
+        | CellValue::Percentage(_)
+        | CellValue::Currency { .. } => 2,
         CellValue::Date(_) => 4,
         CellValue::Formula { result, .. } => {
             return legacy_column_record(usize::from(column), offset, result);
@@ -421,10 +423,14 @@ fn encode_cell_record(cell: &CellValue, strings: &BTreeMap<String, u32>) -> Resu
     // record[1] is what the reader keys off; the flag locates the value at byte 12.
     let (cell_type, flags, payload) = match cell {
         CellValue::Empty => return Ok(Vec::new()),
-        CellValue::Number(value) | CellValue::Percentage(value) | CellValue::Currency { value, .. } => {
-            (2u8, 0x2u32, value.to_le_bytes().to_vec())
-        }
-        CellValue::Bool(value) => (6u8, 0x2u32, f64::from(u8::from(*value)).to_le_bytes().to_vec()),
+        CellValue::Number(value)
+        | CellValue::Percentage(value)
+        | CellValue::Currency { value, .. } => (2u8, 0x2u32, value.to_le_bytes().to_vec()),
+        CellValue::Bool(value) => (
+            6u8,
+            0x2u32,
+            f64::from(u8::from(*value)).to_le_bytes().to_vec(),
+        ),
         CellValue::Date(value) => (5u8, 0x4u32, value.to_le_bytes().to_vec()),
         CellValue::Duration(value) => (7u8, 0x2u32, value.to_le_bytes().to_vec()),
         // An error cell has no value field; the type byte alone round-trips it.
@@ -514,7 +520,12 @@ mod tests {
             first_row.field(7).and_then(|f| f.value.as_bytes())
         );
 
-        let decoded = Table::from_tile(&tile_archive, &strings, &std::collections::HashMap::new(), &std::collections::HashMap::new());
+        let decoded = Table::from_tile(
+            &tile_archive,
+            &strings,
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+        );
         assert_eq!(decoded.rows().len(), 3);
         assert_eq!(
             decoded.rows()[1].cells,

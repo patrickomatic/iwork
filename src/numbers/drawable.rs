@@ -5,9 +5,9 @@
 //! The nested chart/drawing payload semantics are still unmapped, so this
 //! decoder retains the high-confidence top-level payloads as raw bytes.
 
+use crate::Error;
 use crate::iwa::IwaObject;
 use crate::protobuf::ProtoMessage;
-use crate::Error;
 
 pub(crate) const SHEET_DRAWABLE_TYPE: u64 = 5021;
 

@@ -1,8 +1,8 @@
 //! Shared IWA archive encoding primitives used by all three app writers.
 
+use crate::Error;
 use crate::iwa::{IwaArchive, IwaArchiveDescriptor, IwaObjectReference, IwaPacket};
 use crate::protobuf::{ProtoField, ProtoMessage};
-use crate::Error;
 
 /// `MessageInfo.version` triple carried by every real archive header.
 pub(crate) const ARCHIVE_VERSION: [u8; 3] = [1, 0, 5];

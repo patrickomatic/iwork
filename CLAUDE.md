@@ -6,12 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 cargo build
+cargo fmt --check
 cargo test --workspace
 cargo clippy --workspace -- -D warnings
 cargo run -- <path-to-iwork-file>   # CLI inspector
 ```
 
-After completing any meaningful unit of work: run `cargo test --workspace && cargo clippy --workspace -- -D warnings`, fix all errors, commit to main, and push — without waiting to be asked.
+After completing any meaningful unit of work: run `cargo fmt --check && cargo test --workspace && cargo clippy --workspace -- -D warnings`, fix all errors, commit to main, and push — without waiting to be asked.
 
 To run a single test:
 ```bash

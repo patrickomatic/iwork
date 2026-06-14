@@ -518,7 +518,10 @@ mod tests {
         let pkg = Package::from_bytes(zip).unwrap();
         assert_eq!(pkg.entries().len(), 2);
         assert_eq!(pkg.entry_bytes("Index/Document.iwa").unwrap(), b"first");
-        assert_eq!(pkg.entry_bytes("Metadata/Properties.plist").unwrap(), b"second");
+        assert_eq!(
+            pkg.entry_bytes("Metadata/Properties.plist").unwrap(),
+            b"second"
+        );
     }
 
     #[test]

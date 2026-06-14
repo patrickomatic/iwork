@@ -20,8 +20,8 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::Path;
 
-use iwork::numbers::message_type_name;
 use iwork::iwa::IwaArchive;
+use iwork::numbers::message_type_name;
 use iwork::package::Package;
 
 struct ObjectInfo {

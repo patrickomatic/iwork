@@ -176,7 +176,11 @@ fn keynote_template_slides_expose_layout_name() -> Result<(), Error> {
     let presentation =
         keynote::Document::open("examples/keynote/with_content.key")?.presentation()?;
 
-    let templates: Vec<_> = presentation.slides().iter().filter(|s| s.is_template()).collect();
+    let templates: Vec<_> = presentation
+        .slides()
+        .iter()
+        .filter(|s| s.is_template())
+        .collect();
     assert!(!templates.is_empty(), "expected template slides");
 
     assert!(
@@ -194,7 +198,11 @@ fn keynote_template_slides_expose_layout_name() -> Result<(), Error> {
         "expected 'Photo' layout, got: {names:?}"
     );
 
-    let real_slides: Vec<_> = presentation.slides().iter().filter(|s| !s.is_template()).collect();
+    let real_slides: Vec<_> = presentation
+        .slides()
+        .iter()
+        .filter(|s| !s.is_template())
+        .collect();
     assert!(
         real_slides.iter().all(|s| s.layout_name().is_none()),
         "real slides should not have a layout name"
@@ -220,7 +228,10 @@ fn keynote_slides_expose_media_descriptions() -> Result<(), Error> {
         "expected 'Modern living room with large windows' in media descriptions, got: {media:?}"
     );
     assert!(
-        media.contains(&"Wooden walkway with cabinets on either side and a staircase in the background".to_owned()),
+        media.contains(
+            &"Wooden walkway with cabinets on either side and a staircase in the background"
+                .to_owned()
+        ),
         "expected walkway description in media descriptions, got: {media:?}"
     );
 
@@ -279,14 +290,20 @@ fn pages_exposes_text_fragments() -> Result<(), Error> {
 fn keynote_slides_expose_title() -> Result<(), Error> {
     let presentation =
         keynote::Document::open("examples/keynote/with_content.key")?.presentation()?;
-    let slides: Vec<_> = presentation.slides().iter().filter(|s| !s.is_template()).collect();
+    let slides: Vec<_> = presentation
+        .slides()
+        .iter()
+        .filter(|s| !s.is_template())
+        .collect();
 
     let title_slide = slides
         .iter()
         .find(|s| s.title() == Some("This is a presentation title"))
         .expect("with_content.key should have title slide");
     assert!(
-        title_slide.text_fragments().contains(&"By Mr Author".to_owned()),
+        title_slide
+            .text_fragments()
+            .contains(&"By Mr Author".to_owned()),
         "title slide text_fragments should include author line"
     );
 
@@ -316,11 +333,17 @@ fn keynote_slides_expose_text_fragments() -> Result<(), Error> {
     let title_slide = presentation
         .slides()
         .iter()
-        .find(|s| !s.is_template() && s.text_fragments().contains(&"This is a presentation title".to_owned()))
+        .find(|s| {
+            !s.is_template()
+                && s.text_fragments()
+                    .contains(&"This is a presentation title".to_owned())
+        })
         .expect("with_content.key should have a title slide");
 
     assert!(
-        title_slide.text_fragments().contains(&"By Mr Author".to_owned()),
+        title_slide
+            .text_fragments()
+            .contains(&"By Mr Author".to_owned()),
         "title slide should contain author line, got: {:?}",
         title_slide.text_fragments()
     );
@@ -328,7 +351,11 @@ fn keynote_slides_expose_text_fragments() -> Result<(), Error> {
     let content_slide = presentation
         .slides()
         .iter()
-        .find(|s| !s.is_template() && s.text_fragments().contains(&"This is a slide title".to_owned()))
+        .find(|s| {
+            !s.is_template()
+                && s.text_fragments()
+                    .contains(&"This is a slide title".to_owned())
+        })
         .expect("with_content.key should have a slide with a title");
 
     assert!(
@@ -348,8 +375,16 @@ fn pages_exposes_paragraphs_with_styles() -> Result<(), Error> {
 
     // Every paragraph must have at least one run and a non-empty combined text.
     for para in paras {
-        assert!(!para.runs.is_empty(), "paragraph {:?} has no runs", para.style_name);
-        assert!(!para.text().is_empty(), "paragraph {:?} has empty text", para.style_name);
+        assert!(
+            !para.runs.is_empty(),
+            "paragraph {:?} has no runs",
+            para.style_name
+        );
+        assert!(
+            !para.text().is_empty(),
+            "paragraph {:?} has empty text",
+            para.style_name
+        );
     }
 
     // The title paragraph must have style "Title" and text "Eternal Shine".

@@ -844,7 +844,10 @@ mod tests {
     #[test]
     fn decode_empty_bytes_fails() {
         let result = IwaArchive::decode(&[]);
-        assert!(matches!(result, Err(Error::InvalidIwa("archive contained no chunks"))));
+        assert!(matches!(
+            result,
+            Err(Error::InvalidIwa("archive contained no chunks"))
+        ));
     }
 
     #[test]
@@ -889,8 +892,14 @@ mod tests {
         let encoded = IwaArchive::encode(empty_header(), body).unwrap();
         let decoded = IwaArchive::decode(&encoded).unwrap();
         let strings = decoded.ascii_strings(3);
-        assert!(strings.iter().any(|s| s == "hello"), "expected 'hello' in {strings:?}");
-        assert!(strings.iter().any(|s| s == "world"), "expected 'world' in {strings:?}");
+        assert!(
+            strings.iter().any(|s| s == "hello"),
+            "expected 'hello' in {strings:?}"
+        );
+        assert!(
+            strings.iter().any(|s| s == "world"),
+            "expected 'world' in {strings:?}"
+        );
     }
 
     #[test]
@@ -901,7 +910,10 @@ mod tests {
         let encoded = IwaArchive::encode(empty_header(), body).unwrap();
         let decoded = IwaArchive::decode(&encoded).unwrap();
         let strings = decoded.ascii_strings(3);
-        assert!(!strings.iter().any(|s| s == "ab"), "'ab' should be excluded");
+        assert!(
+            !strings.iter().any(|s| s == "ab"),
+            "'ab' should be excluded"
+        );
         assert!(strings.iter().any(|s| s == "long_enough"));
     }
 

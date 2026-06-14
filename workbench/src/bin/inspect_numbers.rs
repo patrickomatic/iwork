@@ -87,7 +87,10 @@ fn inspect_archive(label: &str, archive: &IwaArchive) {
         }
     }
     if objects.len() > MAX_OBJECT_DUMPS {
-        println!("  ... {} more object payloads not dumped", objects.len() - MAX_OBJECT_DUMPS);
+        println!(
+            "  ... {} more object payloads not dumped",
+            objects.len() - MAX_OBJECT_DUMPS
+        );
     }
     println!();
 }

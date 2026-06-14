@@ -26,8 +26,8 @@
 use std::error::Error;
 use std::path::Path;
 
-use iwork::numbers::message_type_name;
 use iwork::iwa::IwaArchive;
+use iwork::numbers::message_type_name;
 use iwork::package::Package;
 use protorev::{Confidence, Corpus, ExperimentManifest, FieldPath, Message, SchemaOptions};
 
@@ -69,9 +69,11 @@ fn schema_command(args: &[String]) -> Result<(), Box<dyn Error>> {
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         if arg == "--min-confidence" {
-            let level = iter.next().ok_or_else(|| err("--min-confidence needs a value"))?;
-            min_confidence =
-                Confidence::parse(level).ok_or_else(|| err(format!("invalid confidence {level:?}")))?;
+            let level = iter
+                .next()
+                .ok_or_else(|| err("--min-confidence needs a value"))?;
+            min_confidence = Confidence::parse(level)
+                .ok_or_else(|| err(format!("invalid confidence {level:?}")))?;
         } else {
             positional.push(arg.clone());
         }
@@ -132,7 +134,9 @@ fn diff_command(args: &[String]) -> Result<(), Box<dyn Error>> {
 /// files rather than pre-extracted `.pb` payloads.
 fn experiments_command(args: &[String]) -> Result<(), Box<dyn Error>> {
     let message_type = parse_type(args.first())?;
-    let manifest_path = args.get(1).ok_or_else(|| err("missing <manifest.protorev>"))?;
+    let manifest_path = args
+        .get(1)
+        .ok_or_else(|| err("missing <manifest.protorev>"))?;
 
     let manifest = ExperimentManifest::from_file(manifest_path)?;
     for experiment in &manifest.experiments {
@@ -213,8 +217,8 @@ fn split_type_and_files(positional: &[String]) -> Result<(u64, &[String]), Box<d
 fn split_type_path_files(args: &[String]) -> Result<(u64, FieldPath, &[String]), Box<dyn Error>> {
     let message_type = parse_type(args.first())?;
     let path_raw = args.get(1).ok_or_else(|| err("missing <field.path>"))?;
-    let path =
-        FieldPath::parse(path_raw).ok_or_else(|| err(format!("invalid field path {path_raw:?}")))?;
+    let path = FieldPath::parse(path_raw)
+        .ok_or_else(|| err(format!("invalid field path {path_raw:?}")))?;
     let files = &args[2..];
     if files.is_empty() {
         return Err(err("missing <file.numbers>..."));

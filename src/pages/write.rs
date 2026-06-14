@@ -3,16 +3,16 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::Error;
 use crate::encode::{
     build_version_history_plist, document_identifier, encode_infra_archives, object_reference,
     properties_plist, synthesize_header, synthesize_header_with_references,
 };
 use crate::iwa::{IwaArchive, IwaObjectReference};
 use crate::protobuf::{ProtoField, ProtoMessage};
-use crate::Error;
 
-use super::body::{Paragraph, TextFormatting};
 use super::Body;
+use super::body::{Paragraph, TextFormatting};
 
 /// Object IDs used within `Index/Document.iwa`.
 const DOCUMENT_ROOT_ID: u64 = 1;
@@ -56,7 +56,10 @@ struct StyleAssignment {
 
 impl StyleAssignment {
     fn char_id_for(&self, fmt: &TextFormatting) -> Option<u64> {
-        self.char_styles.iter().find(|(f, _)| f == fmt).map(|(_, id)| *id)
+        self.char_styles
+            .iter()
+            .find(|(f, _)| f == fmt)
+            .map(|(_, id)| *id)
     }
 
     fn para_id_for(&self, name: &str) -> Option<u64> {
@@ -196,8 +199,11 @@ fn encode_tswp_payload(
         let para_start = raw.len();
 
         // Paragraph style run at the start of each paragraph.
-        let para_style_name =
-            if para.style_name.is_empty() { "Body" } else { &para.style_name };
+        let para_style_name = if para.style_name.is_empty() {
+            "Body"
+        } else {
+            &para.style_name
+        };
         if let Some(style_id) = assignment.para_id_for(para_style_name) {
             para_style_runs.push((para_start, style_id));
         }
@@ -229,10 +235,16 @@ fn encode_tswp_payload(
     let mut fields = vec![ProtoField::bytes(3, raw.into_bytes())];
 
     if !para_style_runs.is_empty() {
-        fields.push(ProtoField::bytes(5, encode_style_runs_blob(&para_style_runs)?));
+        fields.push(ProtoField::bytes(
+            5,
+            encode_style_runs_blob(&para_style_runs)?,
+        ));
     }
     if !char_style_runs.is_empty() {
-        fields.push(ProtoField::bytes(7, encode_style_runs_blob(&char_style_runs)?));
+        fields.push(ProtoField::bytes(
+            7,
+            encode_style_runs_blob(&char_style_runs)?,
+        ));
     }
 
     ProtoMessage::new(fields).encode()
@@ -293,7 +305,11 @@ fn encode_char_style_payload(fmt: &TextFormatting) -> Result<Vec<u8>, Error> {
         return Ok(Vec::new());
     }
 
-    ProtoMessage::new(vec![ProtoField::message(11, &ProtoMessage::new(attr_fields))?]).encode()
+    ProtoMessage::new(vec![ProtoField::message(
+        11,
+        &ProtoMessage::new(attr_fields),
+    )?])
+    .encode()
 }
 
 /// Encodes a style-runs blob (used for type-2001 field 5 and field 7).
@@ -304,8 +320,7 @@ fn encode_style_runs_blob(runs: &[(usize, u64)]) -> Result<Vec<u8>, Error> {
     let run_fields: Vec<ProtoField> = runs
         .iter()
         .map(|(offset, style_id)| {
-            let style_ref =
-                ProtoMessage::new(vec![ProtoField::varint(1, *style_id)]).encode()?;
+            let style_ref = ProtoMessage::new(vec![ProtoField::varint(1, *style_id)]).encode()?;
             let run = ProtoMessage::new(vec![
                 ProtoField::varint(1, *offset as u64),
                 ProtoField::bytes(2, style_ref),
@@ -341,8 +356,7 @@ fn encode_multi_object_archive(
                     state_hint: Some(0),
                 })
                 .collect();
-            let header =
-                synthesize_header_with_references(*id, *typ, payload.len(), refs)?;
+            let header = synthesize_header_with_references(*id, *typ, payload.len(), refs)?;
             IwaArchive::encode(header, payload.clone())
         })
         .transpose()?;
@@ -441,7 +455,11 @@ mod tests {
         let decoded = doc.document()?;
 
         assert_eq!(decoded.title(), Some("My Novel"), "title should round-trip");
-        assert_eq!(decoded.headings(), &["Chapter One"], "headings should round-trip");
+        assert_eq!(
+            decoded.headings(),
+            &["Chapter One"],
+            "headings should round-trip"
+        );
         assert_eq!(
             decoded.text_fragments(),
             &["It was a dark and stormy night."],
@@ -470,7 +488,10 @@ mod tests {
                 },
                 TextRun {
                     text: "bold".to_owned(),
-                    formatting: TextFormatting { bold: Some(true), ..Default::default() },
+                    formatting: TextFormatting {
+                        bold: Some(true),
+                        ..Default::default()
+                    },
                 },
                 TextRun {
                     text: " plain".to_owned(),

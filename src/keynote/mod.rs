@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use crate::package::Package;
-use crate::{DocumentKind, Error, InspectionReport, IWorkDocument};
+use crate::{DocumentKind, Error, IWorkDocument, InspectionReport};
 
 mod presentation;
 mod write;

@@ -289,7 +289,10 @@ fn decode_text_attributes(obj: &IwaObject) -> StyleAttributes {
         .field(STYLE_FIELD_CELL_ATTRS)
         .and_then(|f| f.value.as_bytes())
         .and_then(|b| ProtoMessage::decode(b).ok())
-        .and_then(|cell| cell.field(CELL_ATTR_ALIGNMENT).and_then(|f| f.value.as_varint()))
+        .and_then(|cell| {
+            cell.field(CELL_ATTR_ALIGNMENT)
+                .and_then(|f| f.value.as_varint())
+        })
         .and_then(|v| match v {
             0 => Some(TextAlignment::Auto),
             1 => Some(TextAlignment::Left),

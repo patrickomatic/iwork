@@ -27,11 +27,7 @@ fn main() -> Result<(), iwork::Error> {
             );
         }
         for row in table.rows().iter().take(3) {
-            let cells = row
-                .cells
-                .iter()
-                .map(display_cell)
-                .collect::<Vec<_>>();
+            let cells = row.cells.iter().map(display_cell).collect::<Vec<_>>();
             println!("  row {}: {:?}", row.index, cells);
         }
     }

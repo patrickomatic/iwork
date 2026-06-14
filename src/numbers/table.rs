@@ -52,7 +52,10 @@ pub enum CellValue {
     Bool(bool),
     /// A monetary value with an optional ISO 4217 currency code (e.g. `"USD"`).
     /// The `value` is the raw amount (e.g. `1234.0` for `$1,234.00`).
-    Currency { value: f64, code: Option<String> },
+    Currency {
+        value: f64,
+        code: Option<String>,
+    },
     /// Seconds since the Cocoa epoch (January 1, 2001 UTC).
     Date(f64),
     /// A span of time, in seconds (Numbers cell type 7).
@@ -178,24 +181,42 @@ pub(crate) fn decode_cell_format_datalist(archive: &IwaArchive) -> HashMap<u32, 
     let mut map = HashMap::new();
 
     while cursor < body.len() {
-        let Ok(tag) = read_varint(body, &mut cursor) else { break };
+        let Ok(tag) = read_varint(body, &mut cursor) else {
+            break;
+        };
         let wire_type = tag & 0x07;
         if wire_type != 2 {
             match wire_type {
-                0 => { let _ = read_varint(body, &mut cursor); }
-                1 => { cursor = cursor.saturating_add(8); }
-                5 => { cursor = cursor.saturating_add(4); }
+                0 => {
+                    let _ = read_varint(body, &mut cursor);
+                }
+                1 => {
+                    cursor = cursor.saturating_add(8);
+                }
+                5 => {
+                    cursor = cursor.saturating_add(4);
+                }
                 _ => break,
             }
             continue;
         }
-        let Ok(lv) = read_varint(body, &mut cursor) else { break };
+        let Ok(lv) = read_varint(body, &mut cursor) else {
+            break;
+        };
         let Ok(len) = usize::try_from(lv) else { break };
-        let Some(chunk) = body.get(cursor..cursor + len) else { break };
+        let Some(chunk) = body.get(cursor..cursor + len) else {
+            break;
+        };
         cursor += len;
-        let Ok(entry) = crate::protobuf::ProtoMessage::decode(chunk) else { continue };
-        let Some(key_v) = entry.field(1).and_then(|f| f.value.as_varint()) else { continue };
-        let Ok(key) = u32::try_from(key_v) else { continue };
+        let Ok(entry) = crate::protobuf::ProtoMessage::decode(chunk) else {
+            continue;
+        };
+        let Some(key_v) = entry.field(1).and_then(|f| f.value.as_varint()) else {
+            continue;
+        };
+        let Ok(key) = u32::try_from(key_v) else {
+            continue;
+        };
 
         let format = entry
             .field(6)
@@ -468,10 +489,9 @@ fn decode_cells(
             if off == 0xffff {
                 return CellValue::Empty;
             }
-            f6.get(off as usize..)
-                .map_or(CellValue::Empty, |rec| {
-                    decode_cell_record(rec, strings, rich_texts, formats)
-                })
+            f6.get(off as usize..).map_or(CellValue::Empty, |rec| {
+                decode_cell_record(rec, strings, rich_texts, formats)
+            })
         })
         .collect()
 }
@@ -624,11 +644,20 @@ mod tests {
         strings.insert(7, "Utilities".to_owned());
         let empty_rich: HashMap<u32, String> = HashMap::new();
 
-        let number = decode_cell_record(&double_record(CELL_TYPE_NUMBER, 0x2, 42.5), &strings, &empty_rich, &HashMap::new());
+        let number = decode_cell_record(
+            &double_record(CELL_TYPE_NUMBER, 0x2, 42.5),
+            &strings,
+            &empty_rich,
+            &HashMap::new(),
+        );
         assert_eq!(number, CellValue::Number(42.5));
 
         let formula = decode_cell_record(
-            &double_record_bytes(CELL_TYPE_NUMBER, 0x202, &[0, 0, 0, 0, 0, 64, 69, 64, 17, 0, 0, 0]),
+            &double_record_bytes(
+                CELL_TYPE_NUMBER,
+                0x202,
+                &[0, 0, 0, 0, 0, 64, 69, 64, 17, 0, 0, 0],
+            ),
             &strings,
             &empty_rich,
             &HashMap::new(),
@@ -637,35 +666,74 @@ mod tests {
         assert_eq!(formula.formula_id(), Some(17));
         assert_eq!(formula.as_number(), Some(42.5));
 
-        let decimal =
-            decode_cell_record(&decimal_record(CELL_TYPE_NUMBER, 1234), &strings, &empty_rich, &HashMap::new());
+        let decimal = decode_cell_record(
+            &decimal_record(CELL_TYPE_NUMBER, 1234),
+            &strings,
+            &empty_rich,
+            &HashMap::new(),
+        );
         assert_eq!(decimal, CellValue::Number(1234.0));
 
         let date_seconds = 625_881_600.0_f64;
-        let date = decode_cell_record(&double_record(CELL_TYPE_DATE, 0x4, date_seconds), &strings, &empty_rich, &HashMap::new());
+        let date = decode_cell_record(
+            &double_record(CELL_TYPE_DATE, 0x4, date_seconds),
+            &strings,
+            &empty_rich,
+            &HashMap::new(),
+        );
         assert_eq!(date, CellValue::Date(date_seconds));
 
-        let bool_true = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 1.0), &strings, &empty_rich, &HashMap::new());
+        let bool_true = decode_cell_record(
+            &double_record(CELL_TYPE_BOOL, 0x2, 1.0),
+            &strings,
+            &empty_rich,
+            &HashMap::new(),
+        );
         assert_eq!(bool_true, CellValue::Bool(true));
-        let bool_false = decode_cell_record(&double_record(CELL_TYPE_BOOL, 0x2, 0.0), &strings, &empty_rich, &HashMap::new());
+        let bool_false = decode_cell_record(
+            &double_record(CELL_TYPE_BOOL, 0x2, 0.0),
+            &strings,
+            &empty_rich,
+            &HashMap::new(),
+        );
         assert_eq!(bool_false, CellValue::Bool(false));
 
         // 2h30m == 9000s, stored as an 8-byte double like a bool.
-        let duration = decode_cell_record(&double_record(CELL_TYPE_DURATION, 0x2, 9000.0), &strings, &empty_rich, &HashMap::new());
+        let duration = decode_cell_record(
+            &double_record(CELL_TYPE_DURATION, 0x2, 9000.0),
+            &strings,
+            &empty_rich,
+            &HashMap::new(),
+        );
         assert_eq!(duration, CellValue::Duration(9000.0));
 
         // Error cells carry no value field, just the type byte.
-        let error = decode_cell_record(&double_record_bytes(CELL_TYPE_ERROR, 0x800, &[1, 0, 0, 0]), &strings, &empty_rich, &HashMap::new());
+        let error = decode_cell_record(
+            &double_record_bytes(CELL_TYPE_ERROR, 0x800, &[1, 0, 0, 0]),
+            &strings,
+            &empty_rich,
+            &HashMap::new(),
+        );
         assert_eq!(error, CellValue::Error);
 
         // Rich text (type 9) resolves through the 6218→2001 chain.
         let mut rich_map: HashMap<u32, String> = HashMap::new();
         rich_map.insert(1, "hello rich".to_owned());
-        let rich = decode_cell_record(&text_record_typed(CELL_TYPE_RICH_TEXT, 1), &strings, &rich_map, &HashMap::new());
+        let rich = decode_cell_record(
+            &text_record_typed(CELL_TYPE_RICH_TEXT, 1),
+            &strings,
+            &rich_map,
+            &HashMap::new(),
+        );
         assert_eq!(rich, CellValue::Text("hello rich".to_owned()));
 
         // Rich text key not in map → Empty.
-        let rich_miss = decode_cell_record(&text_record_typed(CELL_TYPE_RICH_TEXT, 99), &strings, &rich_map, &HashMap::new());
+        let rich_miss = decode_cell_record(
+            &text_record_typed(CELL_TYPE_RICH_TEXT, 99),
+            &strings,
+            &rich_map,
+            &HashMap::new(),
+        );
         assert_eq!(rich_miss, CellValue::Empty);
 
         let text = decode_cell_record(&text_record(7), &strings, &empty_rich, &HashMap::new());
@@ -677,17 +745,33 @@ mod tests {
         let strings = HashMap::new();
         let rich: HashMap<u32, String> = HashMap::new();
 
-        assert_eq!(decode_cell_record(&[], &strings, &rich, &HashMap::new()), CellValue::Empty);
+        assert_eq!(
+            decode_cell_record(&[], &strings, &rich, &HashMap::new()),
+            CellValue::Empty
+        );
         // Right version but an unrecognized type byte.
-        assert_eq!(decode_cell_record(&[0x05; 12], &strings, &rich, &HashMap::new()), CellValue::Empty);
+        assert_eq!(
+            decode_cell_record(&[0x05; 12], &strings, &rich, &HashMap::new()),
+            CellValue::Empty
+        );
         // A number cell whose double payload is truncated.
         assert_eq!(
-            decode_cell_record(&double_record_bytes(CELL_TYPE_NUMBER, 0x2, &[1, 2, 3]), &strings, &rich, &HashMap::new()),
+            decode_cell_record(
+                &double_record_bytes(CELL_TYPE_NUMBER, 0x2, &[1, 2, 3]),
+                &strings,
+                &rich,
+                &HashMap::new()
+            ),
             CellValue::Empty
         );
         // A text cell whose key is truncated.
         assert_eq!(
-            decode_cell_record(&double_record_bytes(CELL_TYPE_TEXT, 0x8, &3u16.to_le_bytes()), &strings, &rich, &HashMap::new()),
+            decode_cell_record(
+                &double_record_bytes(CELL_TYPE_TEXT, 0x8, &3u16.to_le_bytes()),
+                &strings,
+                &rich,
+                &HashMap::new()
+            ),
             CellValue::Empty
         );
     }

@@ -17,8 +17,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 
-use iwork::numbers::{self, CellValue};
 use iwork::iwa::IwaArchive;
+use iwork::numbers::{self, CellValue};
 use iwork::protobuf::ProtoMessage;
 
 fn main() -> Result<(), iwork::Error> {
@@ -73,7 +73,9 @@ fn main() -> Result<(), iwork::Error> {
             };
             for (row_index, storage, offsets) in tile_rows(archive) {
                 for (col, &off) in offsets.iter().enumerate() {
-                    let Some(rec) = (off != 0xffff).then(|| storage.get(off as usize..)).flatten()
+                    let Some(rec) = (off != 0xffff)
+                        .then(|| storage.get(off as usize..))
+                        .flatten()
                     else {
                         continue;
                     };

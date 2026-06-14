@@ -2,7 +2,7 @@ use crate::inspect::count_keywords;
 use crate::iwa::IwaArchive;
 use crate::package::{Package, PackageSupport, PackageWriter};
 use crate::protobuf::{ProtoField, ProtoMessage};
-use crate::{keynote, numbers, pages, Document, DocumentKind, Error};
+use crate::{Document, DocumentKind, Error, keynote, numbers, pages};
 
 const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
 const ATTENDANCE_EXAMPLE: &str = "examples/numbers/attendance.numbers";

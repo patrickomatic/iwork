@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use crate::Error;
 use crate::encode::{
     build_version_history_plist, document_identifier, encode_infra_archives, properties_plist,
     synthesize_header, synthesize_header_with_references,
@@ -9,7 +10,6 @@ use crate::encode::{
 use crate::iwa::{IwaArchive, IwaObjectReference};
 use crate::package::PackageWriter;
 use crate::protobuf::{ProtoField, ProtoMessage};
-use crate::Error;
 
 use super::presentation::{Presentation, Slide};
 
@@ -88,8 +88,7 @@ impl Presentation {
             .add_entry("Index/DocumentStylesheet.iwa", infra.document_stylesheet)
             .add_entry("Index/TemplateSlide-1.iwa", template_slide_iwa);
 
-        let real_slides: Vec<&Slide> =
-            self.slides().iter().filter(|s| !s.is_template()).collect();
+        let real_slides: Vec<&Slide> = self.slides().iter().filter(|s| !s.is_template()).collect();
         for (n, slide) in real_slides.iter().enumerate() {
             let slide_iwa = encode_slide_iwa(slide)?;
             writer.add_entry(format!("Index/Slide-{}.iwa", n + 1), slide_iwa);
@@ -150,16 +149,21 @@ fn encode_slide_iwa(slide: &Slide) -> Result<Vec<u8>, Error> {
     // --- title text object ---
     let title_text = slide.title().unwrap_or("");
     let title_payload =
-        ProtoMessage::new(vec![ProtoField::bytes(3, title_text.as_bytes().to_vec())])
-            .encode()?;
+        ProtoMessage::new(vec![ProtoField::bytes(3, title_text.as_bytes().to_vec())]).encode()?;
     let title_header = synthesize_header(SLIDE_TITLE_TEXT_ID, TSWP_TEXT_TYPE, title_payload.len())?;
     chunks.push(IwaArchive::encode(title_header, title_payload)?);
 
     // --- title drawable (field 1.4.1 → SLIDE_TITLE_TEXT_ID, field 2 = 2) ---
     let title_drawable_payload = encode_drawable_payload(SLIDE_TITLE_TEXT_ID, PLACEHOLDER_TITLE)?;
-    let title_drawable_header =
-        synthesize_header(SLIDE_TITLE_DRAWABLE_ID, DRAWABLE_TYPE, title_drawable_payload.len())?;
-    chunks.push(IwaArchive::encode(title_drawable_header, title_drawable_payload)?);
+    let title_drawable_header = synthesize_header(
+        SLIDE_TITLE_DRAWABLE_ID,
+        DRAWABLE_TYPE,
+        title_drawable_payload.len(),
+    )?;
+    chunks.push(IwaArchive::encode(
+        title_drawable_header,
+        title_drawable_payload,
+    )?);
 
     // --- body text and drawable ---
     let body_fragments: Vec<&str> = slide
@@ -177,14 +181,16 @@ fn encode_slide_iwa(slide: &Slide) -> Result<Vec<u8>, Error> {
             synthesize_header(SLIDE_BODY_TEXT_ID, TSWP_TEXT_TYPE, body_payload.len())?;
         chunks.push(IwaArchive::encode(body_header, body_payload)?);
 
-        let body_drawable_payload =
-            encode_drawable_payload(SLIDE_BODY_TEXT_ID, PLACEHOLDER_BODY)?;
+        let body_drawable_payload = encode_drawable_payload(SLIDE_BODY_TEXT_ID, PLACEHOLDER_BODY)?;
         let body_drawable_header = synthesize_header(
             SLIDE_BODY_DRAWABLE_ID,
             DRAWABLE_TYPE,
             body_drawable_payload.len(),
         )?;
-        chunks.push(IwaArchive::encode(body_drawable_header, body_drawable_payload)?);
+        chunks.push(IwaArchive::encode(
+            body_drawable_header,
+            body_drawable_payload,
+        )?);
     }
 
     Ok(chunks.into_iter().flatten().collect())
@@ -250,17 +256,24 @@ mod tests {
         let bytes = p.to_keynote_bytes()?;
         let doc = keynote::Document::from_bytes(bytes)?;
         let decoded = doc.presentation()?;
-        let real_slides: Vec<_> = decoded.slides().iter().filter(|s| !s.is_template()).collect();
+        let real_slides: Vec<_> = decoded
+            .slides()
+            .iter()
+            .filter(|s| !s.is_template())
+            .collect();
         assert_eq!(real_slides.len(), 1);
         assert_eq!(real_slides[0].title(), Some("My Title"));
-        assert!(real_slides[0].text_fragments().contains(&"Some body text".to_owned()));
+        assert!(
+            real_slides[0]
+                .text_fragments()
+                .contains(&"Some body text".to_owned())
+        );
         Ok(())
     }
 
     #[test]
     fn presentation_saves_to_keynote_file() -> Result<(), Error> {
-        let path =
-            std::env::temp_dir().join(format!("iwork-generated-{}.key", std::process::id()));
+        let path = std::env::temp_dir().join(format!("iwork-generated-{}.key", std::process::id()));
         let p = make_presentation("Test", vec![("Hello", vec!["Hello"])]);
         p.save_keynote(&path)?;
         let doc = keynote::Document::open(&path)?;
