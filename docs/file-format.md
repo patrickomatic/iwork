@@ -305,11 +305,11 @@ plus object references. The currently grounded fields are:
 raw object references, `TableInfo` ids, and the `TableModel` ids resolved
 through the object graph. `Sheet::non_table_object_reference_ids()` provides the
 retained sheet-level references that are not known `TableInfo` wrappers.
-`Spreadsheet::object_message_type(id)` and
-`object_archive_path(id)` resolve any retained object id to its raw iWork
-message type and containing `.iwa` archive when the target object is present in
-the decoded Numbers archives; `object_message_type_name(id)` returns one of the
-currently grounded type names for known roles.
+`Spreadsheet::object_by_id(id)`, `object_message_type(id)`, and
+`object_archive_path(id)` resolve any retained object id to its decoded object,
+raw iWork message type, and containing `.iwa` archive when the target object is
+present in the decoded Numbers archives; `object_message_type_name(id)` returns
+one of the currently grounded type names for known roles.
 
 ## TableModel (message type 6001)
 

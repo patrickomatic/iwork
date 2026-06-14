@@ -974,6 +974,10 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                 sheet.name(),
             );
             for object_id in sheet.object_reference_ids() {
+                let object = spreadsheet
+                    .object_by_id(*object_id)
+                    .ok_or(Error::InvalidIwa("missing sheet object reference"))?;
+                assert_eq!(object.identifier, Some(*object_id));
                 assert!(
                     spreadsheet.object_message_type(*object_id).is_some(),
                     "{path} sheet {:?} reference {object_id} should resolve to an object type",
