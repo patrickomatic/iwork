@@ -318,6 +318,9 @@ retained sheet-level references that are not known `TableInfo` wrappers.
 raw iWork message type, and containing `.iwa` archive when the target object is
 present in the decoded Numbers archives; `object_message_type_name(id)` returns
 one of the currently grounded type names for known roles.
+`Spreadsheet::object_references(id)` scans that object's payload for varints
+matching known package object ids, providing a raw object graph edge list for
+follow-on semantic decoders.
 
 ## TableModel (message type 6001)
 

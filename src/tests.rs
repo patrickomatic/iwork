@@ -973,6 +973,15 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
             saw_decoded_sheet_drawable = true;
             assert!(!drawable.info_payload().is_empty());
             assert!(!drawable.payload().is_empty());
+            let references = spreadsheet.object_references(drawable.object_id());
+            assert!(
+                references.iter().any(|id| {
+                    spreadsheet
+                        .object_message_type(*id)
+                        .is_some_and(|message_type| (5020..=5030).contains(&message_type))
+                }),
+                "{path} SheetDrawable should reference the 5020-5030 drawing/chart cluster"
+            );
         }
         for sheet in spreadsheet.sheets() {
             assert!(
