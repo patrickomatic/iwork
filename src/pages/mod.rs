@@ -15,7 +15,7 @@ use crate::{DocumentKind, Error, InspectionReport, IWorkDocument};
 mod body;
 mod write;
 
-pub use body::Body;
+pub use body::{Body, Paragraph, TextFormatting, TextRun};
 
 #[derive(Debug, Clone)]
 pub struct Document {

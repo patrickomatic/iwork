@@ -1,60 +1,75 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use crate::iwa::IwaArchive;
-use crate::protobuf::ProtoMessage;
+use crate::protobuf::{ProtoMessage, ProtoValue};
 use crate::package::Package;
 use crate::Error;
 
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 const STYLESHEET_ENTRY: &str = "Index/DocumentStylesheet.iwa";
 
-/// Message type of the Pages word-processor body object.
-///
-/// This object carries `field 1.3` = template name (e.g. `04B_Term_Paper`).
-/// Validated across both Pages fixtures; field path is structurally invariant.
 const WP_BODY_TYPE: u64 = 10001;
-
-/// Message type of the `DocumentStylesheet` object.
-///
-/// field 2 (repeated): named-style entries — each has field 2.1 (UTF-8 style
-/// key, e.g. `"text-0-paragraphstyle-Title"`) and field 2.2.1 (uint64 object
-/// ID of the style object).  Validated across all Pages fixtures.
 const STYLESHEET_TYPE: u64 = 401;
-
-/// Message type of a TSWP text storage object.
-///
-/// field 3 (bytes): the raw UTF-8 document text, where `\n` separates paragraphs
-/// and TSWP block markers (`\x04`, etc.) delimit sections. Validated in
-/// `eternal_sunshine.pages` (9165-byte field 3 beginning "Author Name\n\nEternal Shine").
-/// Blueprint/parchment Keynote 2001 objects have no field 3 (empty text areas);
-/// field 3 is only present when the text area has actual content.
-///
-/// field 5 (bytes): repeated paragraph-style runs.  Each run entry has:
-///   - field 5.1.1 (uint64): byte offset in field 3 where this style begins.
-///   - field 5.1.2.1 (uint64): style object ID referenced from the 401
-///     stylesheet's field 2 named-style table.
-///
-/// Validated by correlating corpus-inferred field-5 IDs (e.g. 1165693,
-/// 1165682) with the corresponding `dump_stylesheet` output for
-/// `eternal_sunshine.pages`.
 const TSWP_TEXT_TYPE: u64 = 2001;
-
-/// Message type of a media/image object.
-///
-/// field 1 (bytes) → field 8 (bytes → UTF-8): image alt-text.
-/// Identical to the Keynote type-3005 encoding; validated in `term_paper` and
-/// `modern_novel` (2 type-3005 objects each in `Document.iwa`).
 const MEDIA_TYPE: u64 = 3005;
 
-/// Substring that identifies a paragraph-level style key in the 401 table.
-///
-/// Keys follow the pattern `"text-{n}-paragraphstyle-{Name}"` (e.g.
-/// `"text-0-paragraphstyle-Title"`). Splitting on this separator and taking the
-/// trailing part gives the human-readable style name.
 const PARA_STYLE_SEP: &str = "-paragraphstyle-";
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Character-level text formatting for a [`TextRun`].
+///
+/// All fields are optional; `None` means the attribute is inherited from the
+/// paragraph's default style rather than explicitly set on this run.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TextFormatting {
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub underline: Option<bool>,
+    pub font_name: Option<String>,
+    /// Font size in typographic points.
+    pub font_size_pt: Option<f32>,
+}
+
+impl TextFormatting {
+    pub(crate) fn is_default(&self) -> bool {
+        self.bold.is_none()
+            && self.italic.is_none()
+            && self.underline.is_none()
+            && self.font_name.is_none()
+            && self.font_size_pt.is_none()
+    }
+}
+
+/// A contiguous run of text sharing the same character-level formatting.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TextRun {
+    pub text: String,
+    pub formatting: TextFormatting,
+}
+
+/// A paragraph from the Pages document body.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Paragraph {
+    /// The paragraph style name (e.g. `"Title"`, `"Heading"`, `"Body"`).
+    ///
+    /// Sourced from the paragraph style referenced in type-2001 field 5, looked
+    /// up in the `DocumentStylesheet.iwa` type-401 registry.
+    pub style_name: String,
+    /// The text runs that make up this paragraph's content.
+    pub runs: Vec<TextRun>,
+}
+
+impl Paragraph {
+    /// Returns the paragraph's full text by concatenating all runs.
+    pub fn text(&self) -> String {
+        self.runs.iter().map(|r| r.text.as_str()).collect()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Body {
     pub(crate) template_name: Option<String>,
+    /// Structured paragraph list — the primary semantic model.
+    pub(crate) paragraphs: Vec<Paragraph>,
+    // Derived caches kept for backward-compatible accessors:
     pub(crate) title: Option<String>,
     pub(crate) headings: Vec<String>,
     pub(crate) text_fragments: Vec<String>,
@@ -67,60 +82,56 @@ impl Body {
         let archive = IwaArchive::decode(bytes)?;
         let template_name = decode_template_name(&archive);
 
-        let style_map = decode_paragraph_style_map(package)?;
-        let (title, headings, text_fragments) = decode_classified_text(&archive, &style_map);
+        let para_style_map = decode_paragraph_style_map(package)?;
+        let char_style_map = decode_char_style_map(package);
+        let paragraphs = decode_paragraphs(&archive, &para_style_map, &char_style_map);
         let media_descriptions = decode_media_descriptions(&archive);
 
-        Ok(Self {
-            template_name,
-            title,
-            headings,
-            text_fragments,
-            media_descriptions,
-        })
+        let (title, headings, text_fragments) = derive_classified_text(&paragraphs);
+
+        Ok(Self { template_name, paragraphs, title, headings, text_fragments, media_descriptions })
     }
 
     /// The iWork template identifier used to create this document, if present.
     ///
-    /// Sourced from type-10001 field `1.3`. Example values: `"04B_Term_Paper"`,
-    /// `"11B_Novel_Modern"`. Returns `None` for documents not based on a named
-    /// template.
+    /// Sourced from type-10001 field `1.3`.
     pub fn template_name(&self) -> Option<&str> {
         self.template_name.as_deref()
     }
 
-    /// The document title, sourced from the first paragraph whose paragraph
-    /// style key in the 401 stylesheet contains `"paragraphstyle-Title"`.
-    ///
-    /// Returns `None` when no title-styled paragraph is present or non-empty.
+    /// The document title, sourced from the first paragraph whose style name is
+    /// `"Title"` (case-insensitive). Returns `None` when absent.
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
 
-    /// Heading strings from the document body, in document order.
+    /// Heading paragraphs in document order.
     ///
-    /// Includes paragraphs whose paragraph style name contains "Heading",
-    /// "Chapter", or "Subheading" (case-insensitive).  Only the first such
-    /// paragraph per style run is included.
+    /// Includes paragraphs whose style name contains "Heading", "Chapter", or
+    /// "Subheading". Deduplicated.
     pub fn headings(&self) -> &[String] {
         &self.headings
     }
 
-    /// All unique text fragments from the document body, in document order.
+    /// All non-title, non-heading paragraphs in document order.
     ///
-    /// Decoded from TSWP type-2001 field 3. Paragraphs are separated by `\n`;
-    /// TSWP block boundaries (non-whitespace control bytes such as `\x04`) and
-    /// object-replacement characters (U+FFFC) are stripped. Fragments are
-    /// deduplicated.
+    /// Deduplicated; each entry is the trimmed concatenation of the paragraph's
+    /// text runs.
     pub fn text_fragments(&self) -> &[String] {
         &self.text_fragments
     }
 
     /// Alt-text strings for all images in the document, in archive order.
-    ///
-    /// Decoded from type-3005 field `1.8`.
     pub fn media_descriptions(&self) -> &[String] {
         &self.media_descriptions
+    }
+
+    /// All paragraphs in document order, with style names and character runs.
+    ///
+    /// This is the richest view of the document — use it when you need
+    /// paragraph-level style names or character-level formatting.
+    pub fn paragraphs(&self) -> &[Paragraph] {
+        &self.paragraphs
     }
 
     /// Sets the template name for encoding.
@@ -128,15 +139,82 @@ impl Body {
         self.template_name = name;
     }
 
-    /// Replaces the text fragments for encoding.
+    /// Replaces the document content with the given paragraphs.
+    ///
+    /// Recomputes `title()`, `headings()`, and `text_fragments()` from the new
+    /// paragraph list.
+    pub fn set_paragraphs(&mut self, paragraphs: Vec<Paragraph>) {
+        let (title, headings, text_fragments) = derive_classified_text(&paragraphs);
+        self.title = title;
+        self.headings = headings;
+        self.text_fragments = text_fragments;
+        self.paragraphs = paragraphs;
+    }
+
+    /// Convenience setter: replaces the document with plain body paragraphs.
+    ///
+    /// Each fragment becomes a `Paragraph` with `style_name = "Body"` and a
+    /// single unstyled run. Clears title and headings.
     pub fn set_text_fragments(&mut self, fragments: Vec<String>) {
-        self.text_fragments = fragments;
+        self.title = None;
+        self.headings.clear();
+        self.text_fragments.clone_from(&fragments);
+        self.paragraphs = fragments
+            .into_iter()
+            .map(|text| Paragraph {
+                style_name: "Body".to_owned(),
+                runs: vec![TextRun { text, formatting: TextFormatting::default() }],
+            })
+            .collect();
     }
 }
 
-/// Reads the template name from the type-10001 object in `Document.iwa`.
+/// Computes `title`, `headings`, and `text_fragments` from a paragraph list.
 ///
-/// Field path: `field 1` (nested) → `field 3` (UTF-8 string).
+/// Preserves the deduplication behaviour of the previous implementation: the
+/// same text string is not emitted twice across any of the three buckets.
+pub(crate) fn derive_classified_text(
+    paragraphs: &[Paragraph],
+) -> (Option<String>, Vec<String>, Vec<String>) {
+    let mut title: Option<String> = None;
+    let mut headings: Vec<String> = Vec::new();
+    let mut text_fragments: Vec<String> = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+
+    for para in paragraphs {
+        let trimmed = para.text();
+        let trimmed = trimmed.trim().to_owned();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if seen.contains(&trimmed) {
+            continue;
+        }
+        seen.insert(trimmed.clone());
+
+        if is_title_style(&para.style_name) && title.is_none() {
+            title = Some(trimmed);
+        } else if is_heading_style(&para.style_name) {
+            headings.push(trimmed);
+        } else {
+            text_fragments.push(trimmed);
+        }
+    }
+
+    (title, headings, text_fragments)
+}
+
+fn is_title_style(name: &str) -> bool {
+    name.eq_ignore_ascii_case("title")
+}
+
+fn is_heading_style(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.contains("heading") || lower.contains("chapter") || lower.contains("subheading")
+}
+
+// ─── Decoder ─────────────────────────────────────────────────────────────────
+
 fn decode_template_name(archive: &IwaArchive) -> Option<String> {
     archive
         .objects()
@@ -152,27 +230,29 @@ fn decode_template_name(archive: &IwaArchive) -> Option<String> {
 /// Builds a map from paragraph style object ID → human-readable style name.
 ///
 /// Decodes the type-401 `DocumentStylesheet` from `Index/DocumentStylesheet.iwa`.
-/// Each field-2 entry in the stylesheet maps a style key (e.g.
-/// `"text-0-paragraphstyle-Title"`) to an object ID.  This function filters
-/// for keys that contain `PARA_STYLE_SEP` and returns a map from object ID to
-/// the name extracted after that separator (e.g. `"Title"`).
+/// Each field-2 entry maps a key like `"text-0-paragraphstyle-Title"` to an
+/// object ID. Returns `id → "Title"` (the part after `"-paragraphstyle-"`).
 fn decode_paragraph_style_map(package: &Package) -> Result<HashMap<u64, String>, Error> {
     let bytes = package.entry_bytes(STYLESHEET_ENTRY)?;
     let archive = IwaArchive::decode(bytes)?;
 
-    let stylesheet = archive
-        .objects()
-        .into_iter()
-        .find(|o| o.message_type == Some(STYLESHEET_TYPE));
-
     let mut map = HashMap::new();
 
-    let Some(stylesheet) = stylesheet else { return Ok(map); };
-    let Ok(msg) = ProtoMessage::decode(&stylesheet.payload) else { return Ok(map); };
+    let Some(stylesheet) = archive
+        .objects()
+        .into_iter()
+        .find(|o| o.message_type == Some(STYLESHEET_TYPE))
+    else {
+        return Ok(map);
+    };
+
+    let Ok(msg) = ProtoMessage::decode(&stylesheet.payload) else {
+        return Ok(map);
+    };
 
     for entry in msg.fields_by_number(2) {
-        let Some(inner_bytes) = entry.value.as_bytes() else { continue; };
-        let Ok(inner) = ProtoMessage::decode(inner_bytes) else { continue; };
+        let Some(inner_bytes) = entry.value.as_bytes() else { continue };
+        let Ok(inner) = ProtoMessage::decode(inner_bytes) else { continue };
 
         let key = inner
             .field(1)
@@ -194,24 +274,72 @@ fn decode_paragraph_style_map(package: &Package) -> Result<HashMap<u64, String>,
     Ok(map)
 }
 
-/// Decodes paragraph style runs from a type-2001 object payload.
+/// Builds a map from character style object ID → `TextFormatting`.
 ///
-/// Returns a sorted list of `(byte_offset, style_name)` pairs.  `byte_offset`
-/// is the offset in field 3's raw bytes where the style begins; `style_name`
-/// is looked up from `style_map` and defaults to empty string when not found.
+/// Scans every object in `DocumentStylesheet.iwa` and reads the text-attribute
+/// sub-message at field 11. Objects without field 11 produce a default entry.
+fn decode_char_style_map(package: &Package) -> HashMap<u64, TextFormatting> {
+    let Ok(bytes) = package.entry_bytes(STYLESHEET_ENTRY) else {
+        return HashMap::new();
+    };
+    let Ok(archive) = IwaArchive::decode(bytes) else {
+        return HashMap::new();
+    };
+
+    archive
+        .objects()
+        .into_iter()
+        .filter_map(|obj| {
+            let id = obj.identifier?;
+            let fmt = decode_text_formatting(&obj.payload);
+            Some((id, fmt))
+        })
+        .collect()
+}
+
+/// Decodes `TextFormatting` from a style object payload by reading field 11.
+fn decode_text_formatting(payload: &[u8]) -> TextFormatting {
+    let Ok(msg) = ProtoMessage::decode(payload) else {
+        return TextFormatting::default();
+    };
+    let Some(attrs) = msg
+        .field(11)
+        .and_then(|f| f.value.as_bytes())
+        .and_then(|b| ProtoMessage::decode(b).ok())
+    else {
+        return TextFormatting::default();
+    };
+
+    let bold = attrs.field(1).and_then(|f| f.value.as_varint()).map(|v| v != 0);
+    let italic = attrs.field(2).and_then(|f| f.value.as_varint()).map(|v| v != 0);
+    let font_size_pt = attrs.field(3).and_then(|f| {
+        if let ProtoValue::Fixed32(bits) = f.value {
+            let size = f32::from_bits(bits);
+            if size > 0.0 && size.is_finite() { Some(size) } else { None }
+        } else {
+            None
+        }
+    });
+    let font_name = attrs
+        .field(5)
+        .and_then(|f| f.value.as_bytes())
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .map(ToOwned::to_owned);
+    let underline = attrs.field(13).and_then(|f| f.value.as_varint()).map(|v| v != 0);
+
+    TextFormatting { bold, italic, underline, font_name, font_size_pt }
+}
+
+/// Decodes paragraph style runs from a type-2001 payload (field 5).
 ///
-/// Field path for each run:
-///   field 5 (bytes) → field 1 (repeated, bytes) → field 1 (uint64 offset)
-///                                              → field 2 (bytes) → field 1 (uint64 style\_id)
+/// Returns sorted `(byte_offset, style_name)` pairs. The style name is looked
+/// up via `style_map`; absent IDs produce an empty name.
 fn decode_style_runs(payload: &[u8], style_map: &HashMap<u64, String>) -> Vec<(usize, String)> {
     let Ok(msg) = ProtoMessage::decode(payload) else { return Vec::new(); };
 
     let mut runs: Vec<(usize, String)> = msg
         .fields_by_number(5)
-        .filter_map(|f5| {
-            let bytes = f5.value.as_bytes()?;
-            ProtoMessage::decode(bytes).ok()
-        })
+        .filter_map(|f5| f5.value.as_bytes().and_then(|b| ProtoMessage::decode(b).ok()))
         .flat_map(|field5| {
             field5
                 .fields_by_number(1)
@@ -238,9 +366,39 @@ fn decode_style_runs(payload: &[u8], style_map: &HashMap<u64, String>) -> Vec<(u
     runs
 }
 
-/// Returns the paragraph style name that covers the given byte offset.
+/// Decodes character style runs from a type-2001 payload (field 7).
 ///
-/// Finds the last run whose offset is ≤ `byte_offset` and returns its name.
+/// Returns sorted `(byte_offset, style_object_id)` pairs. Same wire structure
+/// as the paragraph style runs in field 5.
+fn decode_char_runs_raw(payload: &[u8]) -> Vec<(usize, u64)> {
+    let Ok(msg) = ProtoMessage::decode(payload) else { return Vec::new(); };
+
+    let mut runs: Vec<(usize, u64)> = msg
+        .fields_by_number(7)
+        .filter_map(|f7| f7.value.as_bytes().and_then(|b| ProtoMessage::decode(b).ok()))
+        .flat_map(|field7| {
+            field7
+                .fields_by_number(1)
+                .filter_map(|entry| {
+                    let run_bytes = entry.value.as_bytes()?;
+                    let run = ProtoMessage::decode(run_bytes).ok()?;
+                    let offset = usize::try_from(run.field(1)?.value.as_varint()?).ok()?;
+                    let style_id = run
+                        .field(2)
+                        .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                        .and_then(|b| ProtoMessage::decode(&b).ok())
+                        .and_then(|m| m.field(1)?.value.as_varint())?;
+                    Some((offset, style_id))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    runs.sort_by_key(|(off, _)| *off);
+    runs
+}
+
+/// Returns the style name whose run covers `byte_offset` (last run ≤ offset).
 fn style_at(runs: &[(usize, String)], byte_offset: usize) -> &str {
     runs.iter()
         .rev()
@@ -248,31 +406,71 @@ fn style_at(runs: &[(usize, String)], byte_offset: usize) -> &str {
         .map_or("", |(_, name)| name.as_str())
 }
 
-/// Returns `true` when a paragraph style name indicates a heading.
-fn is_heading_style(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    lower.contains("heading") || lower.contains("chapter") || lower.contains("subheading")
+/// Returns the char style object ID whose run covers `byte_offset`.
+fn char_id_at(char_runs: &[(usize, u64)], byte_offset: usize) -> Option<u64> {
+    char_runs.iter().rev().find(|(off, _)| *off <= byte_offset).map(|(_, id)| *id)
 }
 
-/// Returns `true` when a paragraph style name indicates the document title.
-fn is_title_style(name: &str) -> bool {
-    name.eq_ignore_ascii_case("title")
+/// Splits a paragraph's raw text into [`TextRun`]s by following char style run
+/// boundaries.
+fn build_text_runs(
+    raw_text: &str,
+    para_start: usize,
+    char_runs: &[(usize, u64)],
+    char_style_map: &HashMap<u64, TextFormatting>,
+) -> Vec<TextRun> {
+    let para_end = para_start + raw_text.len();
+
+    // Boundaries where the char style changes WITHIN this paragraph.
+    let mut boundaries: Vec<usize> = vec![para_start];
+    for (off, _) in char_runs {
+        if *off > para_start && *off < para_end {
+            boundaries.push(*off);
+        }
+    }
+
+    let mut runs = Vec::new();
+    for i in 0..boundaries.len() {
+        let run_start = boundaries[i];
+        let run_end = boundaries.get(i + 1).copied().unwrap_or(para_end);
+
+        let formatting = char_id_at(char_runs, run_start)
+            .and_then(|id| char_style_map.get(&id))
+            .cloned()
+            .unwrap_or_default();
+
+        let start_in_para = run_start - para_start;
+        let end_in_para = run_end - para_start;
+
+        if start_in_para <= raw_text.len()
+            && end_in_para <= raw_text.len()
+            && raw_text.is_char_boundary(start_in_para)
+            && raw_text.is_char_boundary(end_in_para)
+        {
+            let text = raw_text[start_in_para..end_in_para].to_owned();
+            if !text.is_empty() {
+                runs.push(TextRun { text, formatting });
+            }
+        }
+    }
+
+    if runs.is_empty() {
+        let text = raw_text.trim().to_owned();
+        if !text.is_empty() {
+            runs.push(TextRun { text, formatting: TextFormatting::default() });
+        }
+    }
+
+    runs
 }
 
-/// Decodes and classifies all TSWP text in a `Document.iwa` archive.
-///
-/// Returns `(title, headings, text_fragments)`.  The title is the first
-/// non-empty paragraph with a "Title" paragraph style; headings are paragraphs
-/// with "Heading", "Chapter", or "Subheading" styles; remaining non-empty
-/// paragraphs become `text_fragments`.
-fn decode_classified_text(
+/// Decodes all TSWP text objects in `archive` into a [`Paragraph`] list.
+fn decode_paragraphs(
     archive: &IwaArchive,
-    style_map: &HashMap<u64, String>,
-) -> (Option<String>, Vec<String>, Vec<String>) {
-    let mut title: Option<String> = None;
-    let mut headings: Vec<String> = Vec::new();
-    let mut fragments: Vec<String> = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
+    para_style_map: &HashMap<u64, String>,
+    char_style_map: &HashMap<u64, TextFormatting>,
+) -> Vec<Paragraph> {
+    let mut paragraphs = Vec::new();
 
     for obj in archive.objects().iter().filter(|o| o.message_type == Some(TSWP_TEXT_TYPE)) {
         let Some(raw) = ProtoMessage::decode(&obj.payload)
@@ -283,53 +481,24 @@ fn decode_classified_text(
             continue;
         };
 
-        let runs = decode_style_runs(&obj.payload, style_map);
+        let para_runs = decode_style_runs(&obj.payload, para_style_map);
+        let char_runs = decode_char_runs_raw(&obj.payload);
 
-        // Walk the raw text, tracking byte offset, splitting on \n and control chars.
-        let mut para_start: usize = 0;
+        let mut para_start = 0usize;
+        let mut i = 0usize;
         let mut para_buf = String::new();
 
-        let flush = |para_buf: &mut String,
-                     para_start: usize,
-                     runs: &[(usize, String)],
-                     title: &mut Option<String>,
-                     headings: &mut Vec<String>,
-                     fragments: &mut Vec<String>,
-                     seen: &mut std::collections::BTreeSet<String>| {
-            let text = para_buf.trim().to_owned();
-            para_buf.clear();
-            if text.is_empty() || text.contains('\u{FFFC}') {
-                return;
-            }
-            if seen.contains(&text) {
-                return;
-            }
-            seen.insert(text.clone());
-            let style = style_at(runs, para_start);
-            if is_title_style(style) && title.is_none() {
-                *title = Some(text);
-            } else if is_heading_style(style) {
-                headings.push(text);
-            } else {
-                fragments.push(text);
-            }
-        };
-
-        let raw_bytes = raw.as_bytes();
-        let mut i = 0;
         for ch in raw.chars() {
-            let is_sep = ch != '\n' && ch.is_control();
-            let is_newline = ch == '\n';
-            if is_sep || is_newline {
-                flush(
-                    &mut para_buf,
+            if ch.is_control() || ch == '\n' {
+                push_paragraph(
+                    &para_buf,
                     para_start,
-                    &runs,
-                    &mut title,
-                    &mut headings,
-                    &mut fragments,
-                    &mut seen,
+                    &para_runs,
+                    &char_runs,
+                    char_style_map,
+                    &mut paragraphs,
                 );
+                para_buf.clear();
                 i += ch.len_utf8();
                 para_start = i;
             } else {
@@ -337,28 +506,40 @@ fn decode_classified_text(
                 i += ch.len_utf8();
             }
         }
-        // flush last paragraph
         if !para_buf.is_empty() {
-            let byte_len = raw_bytes.len();
-            flush(
-                &mut para_buf,
+            push_paragraph(
+                &para_buf,
                 para_start,
-                &runs,
-                &mut title,
-                &mut headings,
-                &mut fragments,
-                &mut seen,
+                &para_runs,
+                &char_runs,
+                char_style_map,
+                &mut paragraphs,
             );
-            let _ = byte_len;
         }
     }
 
-    (title, headings, fragments)
+    paragraphs
+}
+
+fn push_paragraph(
+    raw_text: &str,
+    para_start: usize,
+    para_runs: &[(usize, String)],
+    char_runs: &[(usize, u64)],
+    char_style_map: &HashMap<u64, TextFormatting>,
+    paragraphs: &mut Vec<Paragraph>,
+) {
+    if raw_text.trim().is_empty() || raw_text.trim().contains('\u{FFFC}') {
+        return;
+    }
+    let style_name = style_at(para_runs, para_start).to_owned();
+    let runs = build_text_runs(raw_text, para_start, char_runs, char_style_map);
+    if !runs.is_empty() {
+        paragraphs.push(Paragraph { style_name, runs });
+    }
 }
 
 /// Reads alt-text from all type-3005 media objects in `Document.iwa`.
-///
-/// Field path: `field 1` (nested) → `field 8` (UTF-8 string).
 fn decode_media_descriptions(archive: &IwaArchive) -> Vec<String> {
     archive
         .objects()

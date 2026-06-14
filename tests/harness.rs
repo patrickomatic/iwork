@@ -338,3 +338,50 @@ fn keynote_slides_expose_text_fragments() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[test]
+fn pages_exposes_paragraphs_with_styles() -> Result<(), Error> {
+    let body = pages::Document::open("examples/pages/eternal_sunshine.pages")?.document()?;
+
+    let paras = body.paragraphs();
+    assert!(!paras.is_empty(), "should have paragraphs");
+
+    // Every paragraph must have at least one run and a non-empty combined text.
+    for para in paras {
+        assert!(!para.runs.is_empty(), "paragraph {:?} has no runs", para.style_name);
+        assert!(!para.text().is_empty(), "paragraph {:?} has empty text", para.style_name);
+    }
+
+    // The title paragraph must have style "Title" and text "Eternal Shine".
+    let title_para = paras
+        .iter()
+        .find(|p| p.style_name.eq_ignore_ascii_case("title"))
+        .expect("should have a Title-styled paragraph");
+    assert_eq!(title_para.text(), "Eternal Shine");
+
+    // Confirm that paragraphs() and the derived accessors agree.
+    assert_eq!(body.title(), Some("Eternal Shine"));
+    assert!(!body.headings().is_empty());
+    assert!(!body.text_fragments().is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn pages_paragraphs_expose_character_runs() -> Result<(), Error> {
+    // All real fixtures should produce paragraphs whose run texts concatenate
+    // to the same value reported by para.text().
+    for path in PAGES_EXAMPLES {
+        let body = pages::Document::open(path)?.document()?;
+        for para in body.paragraphs() {
+            let run_text: String = para.runs.iter().map(|r| r.text.as_str()).collect();
+            assert_eq!(
+                para.text(),
+                run_text,
+                "{path}: paragraph text/run mismatch for style {:?}",
+                para.style_name
+            );
+        }
+    }
+    Ok(())
+}
