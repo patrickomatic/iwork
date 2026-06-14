@@ -179,6 +179,15 @@ impl Spreadsheet {
             .flatten()
     }
 
+    /// Raw 5020-5030 drawing/chart cluster objects referenced by a sheet drawable.
+    pub fn sheet_drawable_objects(&self, drawable_id: u64) -> Vec<IwaObject> {
+        self.object_references(drawable_id)
+            .into_iter()
+            .filter_map(|object_id| self.object_by_id(object_id))
+            .filter(|object| object.message_type.is_some_and(is_drawable_cluster_type))
+            .collect()
+    }
+
     /// Heuristic style catalog decoded from `Index/DocumentStylesheet.iwa`.
     pub fn stylesheet_catalog(&self) -> StylesheetCatalog {
         StylesheetCatalog::from_archive(&self.stylesheet)
@@ -367,6 +376,10 @@ fn referenced_object_ids(payload: &[u8], self_id: u64, known_ids: &HashSet<u64>)
         }
     }
     referenced
+}
+
+fn is_drawable_cluster_type(message_type: u64) -> bool {
+    (5020..=5030).contains(&message_type)
 }
 
 #[derive(Debug, Clone)]
