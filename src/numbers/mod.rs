@@ -20,6 +20,7 @@ use crate::package::Package;
 use crate::{DocumentKind, Error, InspectionReport};
 
 mod formula;
+mod drawable;
 mod header_storage;
 mod sheet;
 mod spreadsheet;
@@ -28,6 +29,7 @@ mod table_model;
 mod types;
 mod write;
 
+pub use drawable::SheetDrawable;
 pub use formula::{
     FormulaAuxiliaryEntry, FormulaAuxiliaryEntryPayload, FormulaAuxiliaryRecord, FormulaBounds,
     FormulaBoundsPair, FormulaRecord, FormulaRecordKey,

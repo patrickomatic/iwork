@@ -965,9 +965,15 @@ fn numbers_sheets_expose_names_and_table_membership() -> Result<(), Error> {
 fn sheets_retain_non_table_object_references() -> Result<(), Error> {
     let mut saw_non_table_reference = false;
     let mut saw_sheet_drawable_reference = false;
+    let mut saw_decoded_sheet_drawable = false;
 
     for path in NUMBERS_EXAMPLES {
         let spreadsheet = numbers::Document::open(path)?.spreadsheet()?;
+        for drawable in spreadsheet.sheet_drawables() {
+            saw_decoded_sheet_drawable = true;
+            assert!(!drawable.info_payload().is_empty());
+            assert!(!drawable.payload().is_empty());
+        }
         for sheet in spreadsheet.sheets() {
             assert!(
                 !sheet.object_reference_ids().is_empty(),
@@ -1003,6 +1009,7 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
             saw_non_table_reference |= sheet.non_table_object_reference_ids().next().is_some();
             saw_sheet_drawable_reference |= sheet.non_table_object_reference_ids().any(|id| {
                 spreadsheet.object_message_type_name(id) == Some("SheetDrawable")
+                    && spreadsheet.sheet_drawable(id).is_some()
             });
         }
     }
@@ -1014,6 +1021,10 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
     assert!(
         saw_sheet_drawable_reference,
         "fixtures should include a non-table sheet reference grounded as SheetDrawable"
+    );
+    assert!(
+        saw_decoded_sheet_drawable,
+        "fixtures should include at least one structurally decoded SheetDrawable"
     );
 
     Ok(())
