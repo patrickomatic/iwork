@@ -974,6 +974,11 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
             assert!(!drawable.info_payload().is_empty());
             assert!(!drawable.payload().is_empty());
             let references = spreadsheet.object_references(drawable.object_id());
+            let drawable_objects = spreadsheet.sheet_drawable_objects(drawable.object_id());
+            assert!(
+                !drawable_objects.is_empty(),
+                "{path} SheetDrawable should expose downstream drawing/chart objects"
+            );
             assert!(
                 references.iter().any(|id| {
                     spreadsheet
@@ -981,6 +986,12 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                         .is_some_and(|message_type| (5020..=5030).contains(&message_type))
                 }),
                 "{path} SheetDrawable should reference the 5020-5030 drawing/chart cluster"
+            );
+            assert!(
+                drawable_objects.iter().all(|object| object
+                    .message_type
+                    .is_some_and(|message_type| (5020..=5030).contains(&message_type))),
+                "{path} SheetDrawable downstream objects should stay within the 5020-5030 cluster"
             );
         }
         for sheet in spreadsheet.sheets() {
