@@ -16,10 +16,12 @@ pub(crate) const FORMULA_AUXILIARY_RECORD_TYPE: u64 = 4009;
 const FIELD_FORMULA_ID: u32 = 2;
 const FIELD_FORMULA_KIND: u32 = 3;
 const FIELD_RECORD_KEY: u32 = 1;
+const FIELD_EXPRESSION: u32 = 6;
 const FIELD_BOUNDS_7: u32 = 7;
 const FIELD_BOUNDS_8: u32 = 8;
 const RECORD_KEY_FIELD_1: u32 = 1;
 const RECORD_KEY_FIELD_2: u32 = 2;
+const EXPRESSION_FIELD_BYTES: u32 = 5;
 const BOUNDS_FIELD_PRIMARY: u32 = 2;
 const BOUNDS_FIELD_SECONDARY: u32 = 3;
 const AUX_FIELD_1: u32 = 1;
@@ -39,6 +41,7 @@ pub struct FormulaRecord {
     record_key: FormulaRecordKey,
     formula_id: u32,
     formula_kind: u64,
+    expression_bytes: Vec<u8>,
     field7_bounds: Option<FormulaBoundsPair>,
     field8_bounds: Option<FormulaBoundsPair>,
     auxiliary_record_ids: Vec<u64>,
@@ -78,6 +81,7 @@ impl FormulaRecord {
             record_key,
             formula_id,
             formula_kind,
+            expression_bytes: decode_expression_bytes(&message)?,
             field7_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_7),
             field8_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_8),
             auxiliary_record_ids: referenced_auxiliary_ids(object, auxiliary_ids),
@@ -105,6 +109,14 @@ impl FormulaRecord {
     /// callers can correlate records while the schema is still being mapped.
     pub fn formula_kind(&self) -> u64 {
         self.formula_kind
+    }
+
+    /// Raw expression payload bytes stored in field 6.5.
+    ///
+    /// This byte stream is structurally stable across current fixtures but its
+    /// token grammar is not decoded yet.
+    pub fn expression_bytes(&self) -> &[u8] {
+        &self.expression_bytes
     }
 
     /// Raw bounds pair stored in field 7.
@@ -175,9 +187,15 @@ impl FormulaAuxiliaryRecord {
         let message = ProtoMessage::decode(&object.payload).ok()?;
         Some(Self {
             object_id,
-            field1: message.field(AUX_FIELD_1).and_then(|field| field.value.as_varint())?,
-            field2: message.field(AUX_FIELD_2).and_then(|field| field.value.as_varint())?,
-            field3: message.field(AUX_FIELD_3).and_then(|field| field.value.as_varint())?,
+            field1: message
+                .field(AUX_FIELD_1)
+                .and_then(|field| field.value.as_varint())?,
+            field2: message
+                .field(AUX_FIELD_2)
+                .and_then(|field| field.value.as_varint())?,
+            field3: message
+                .field(AUX_FIELD_3)
+                .and_then(|field| field.value.as_varint())?,
             entries: message
                 .fields_by_number(AUX_FIELD_ENTRIES)
                 .filter_map(|field| {
@@ -372,9 +390,18 @@ fn decode_record_key(message: &ProtoMessage) -> Option<FormulaRecordKey> {
     })
 }
 
-fn decode_auxiliary_entry_payload(
-    message: &ProtoMessage,
-) -> Option<FormulaAuxiliaryEntryPayload> {
+fn decode_expression_bytes(message: &ProtoMessage) -> Option<Vec<u8>> {
+    let expression = message
+        .field(FIELD_EXPRESSION)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(|bytes| ProtoMessage::decode(bytes).ok())?;
+    expression
+        .field(EXPRESSION_FIELD_BYTES)
+        .and_then(|field| field.value.as_bytes())
+        .map(<[u8]>::to_vec)
+}
+
+fn decode_auxiliary_entry_payload(message: &ProtoMessage) -> Option<FormulaAuxiliaryEntryPayload> {
     let payload = message
         .field(AUX_ENTRY_FIELD_PAYLOAD)
         .and_then(|field| field.value.as_bytes())
