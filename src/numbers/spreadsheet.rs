@@ -176,12 +176,26 @@ impl Spreadsheet {
     /// Resolves an object id to its iWork message type, if the object is present
     /// in one of the decoded Numbers archives.
     pub fn object_message_type(&self, object_id: u64) -> Option<u64> {
-        self.core_archives()
+        self.core_archive_entries()
             .into_iter()
+            .map(|(_, archive)| archive)
             .chain(self.table_archives.iter().map(|archive| &archive.archive))
             .flat_map(IwaArchive::objects)
             .find(|object| object.identifier == Some(object_id))
             .and_then(|object| object.message_type)
+    }
+
+    /// Resolves an object id to the decoded `.iwa` archive path that contains it.
+    pub fn object_archive_path(&self, object_id: u64) -> Option<&str> {
+        self.core_archive_entries()
+            .into_iter()
+            .find_map(|(path, archive)| archive_has_object(archive, object_id).then_some(path))
+            .or_else(|| {
+                self.table_archives
+                    .iter()
+                    .find(|archive| archive_has_object(&archive.archive, object_id))
+                    .map(TableArchive::path)
+            })
     }
 
     /// Resolves an object id to one of the currently grounded type names.
@@ -251,13 +265,13 @@ impl Spreadsheet {
             .find(|archive| archive.descriptor().root_object_id == Some(root_object_id))
     }
 
-    fn core_archives(&self) -> [&IwaArchive; 5] {
+    fn core_archive_entries(&self) -> [(&'static str, &IwaArchive); 5] {
         [
-            &self.document,
-            &self.document_metadata,
-            &self.metadata,
-            &self.stylesheet,
-            &self.calculation_engine,
+            (DOCUMENT_ENTRY, &self.document),
+            (DOCUMENT_METADATA_ENTRY, &self.document_metadata),
+            (METADATA_ENTRY, &self.metadata),
+            (STYLESHEET_ENTRY, &self.stylesheet),
+            (CALCULATION_ENGINE_ENTRY, &self.calculation_engine),
         ]
     }
 
@@ -282,6 +296,13 @@ impl Spreadsheet {
             .map(|a| Table::from_tile(&a.archive, &strings, &empty_rich, &empty_fmt))
             .collect()
     }
+}
+
+fn archive_has_object(archive: &IwaArchive, object_id: u64) -> bool {
+    archive
+        .objects()
+        .iter()
+        .any(|object| object.identifier == Some(object_id))
 }
 
 #[derive(Debug, Clone)]
