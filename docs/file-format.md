@@ -327,6 +327,9 @@ matching known package object ids, providing a raw object graph edge list for
 follow-on semantic decoders.
 `Spreadsheet::object_message(id)` decodes the located object's raw payload as a
 protobuf message when the object is present and structurally valid.
+`object_info(id)` and `object_reference_info(id)` resolve ids into compact graph
+summaries containing object id, raw message type, grounded role name when known,
+and containing archive path.
 
 ## TableModel (message type 6001)
 

@@ -228,6 +228,18 @@ impl Spreadsheet {
             .and_then(|object| ProtoMessage::decode(&object.payload).ok())
     }
 
+    /// Resolves an object id into a compact graph summary.
+    pub fn object_info(&self, object_id: u64) -> Option<ObjectInfo> {
+        let message_type = self.object_message_type(object_id)?;
+        let archive_path = self.object_archive_path(object_id)?.to_owned();
+        Some(ObjectInfo {
+            object_id,
+            message_type,
+            type_name: message_type_name(message_type),
+            archive_path,
+        })
+    }
+
     /// Resolves an object id to the decoded `.iwa` archive path that contains it.
     pub fn object_archive_path(&self, object_id: u64) -> Option<&str> {
         self.core_archive_entries()
@@ -251,6 +263,14 @@ impl Spreadsheet {
         };
         let known_ids = self.known_object_ids();
         referenced_object_ids(&object.payload, object_id, &known_ids)
+    }
+
+    /// Resolves known package object references from an object's raw payload.
+    pub fn object_reference_info(&self, object_id: u64) -> Vec<ObjectInfo> {
+        self.object_references(object_id)
+            .into_iter()
+            .filter_map(|referenced_id| self.object_info(referenced_id))
+            .collect()
     }
 
     /// Resolves an object id to one of the currently grounded type names.
@@ -392,6 +412,37 @@ fn is_drawable_cluster_type(message_type: u64) -> bool {
 pub struct TableArchive {
     path: String,
     archive: IwaArchive,
+}
+
+/// Resolved metadata for one object in a Numbers package graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectInfo {
+    object_id: u64,
+    message_type: u64,
+    type_name: Option<&'static str>,
+    archive_path: String,
+}
+
+impl ObjectInfo {
+    /// Object identifier within the package.
+    pub fn object_id(&self) -> u64 {
+        self.object_id
+    }
+
+    /// Raw iWork message type identifier.
+    pub fn message_type(&self) -> u64 {
+        self.message_type
+    }
+
+    /// Grounded role name for known message types.
+    pub fn type_name(&self) -> Option<&'static str> {
+        self.type_name
+    }
+
+    /// Package-relative `.iwa` path containing the object.
+    pub fn archive_path(&self) -> &str {
+        &self.archive_path
+    }
 }
 
 impl TableArchive {

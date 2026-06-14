@@ -976,6 +976,11 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
             assert!(!drawable.info_message()?.fields().is_empty());
             assert!(!drawable.payload_message()?.fields().is_empty());
             let references = spreadsheet.object_references(drawable.object_id());
+            let reference_info = spreadsheet.object_reference_info(drawable.object_id());
+            assert_eq!(reference_info.len(), references.len());
+            assert!(reference_info.iter().all(|info| {
+                references.contains(&info.object_id()) && info.archive_path().ends_with(".iwa")
+            }));
             let drawable_objects = spreadsheet.sheet_drawable_objects(drawable.object_id());
             assert!(
                 !drawable_objects.is_empty(),
