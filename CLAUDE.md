@@ -69,6 +69,7 @@ The Numbers reader has an evidence-backed table path:
 - `Spreadsheet::sheet_drawables()` decodes type-5021 sheet drawables structurally and retains top-level field 1 and field 10000 payloads as raw bytes.
 - `SheetDrawable::info_message()` and `payload_message()` decode those raw payloads as nested protobuf messages while leaving subtype semantics unnamed.
 - `Spreadsheet::sheet_drawable_objects(drawable_id)` follows a type-5021 drawable into referenced raw 5020-5030 drawing/chart cluster objects.
+- `Spreadsheet::sheet_drawable_object_info(drawable_id)` returns those cluster objects as resolved graph summaries.
 - `Spreadsheet::table_models()` decodes `TableModel` objects from `Index/CalculationEngine.iwa` (with `Document.iwa` fallback), including table UUID, name, row/column counts, header row/column counts, tile ids, header storage bucket ids, and DataList references.
 - `Spreadsheet::decoded_tables()` is the authoritative table view: it follows each model's tiles and scoped DataLists, merges multi-tile row ranges, and avoids cross-table string-key collisions.
 - `Spreadsheet::formula_records()` decodes type-4008 formula records from `Index/CalculationEngine.iwa`; field 1 is exposed as a raw `FormulaRecordKey`, field 2 matches formula ids stored on some formula-result cells, field 6.5 is retained as raw expression bytes, fields 7/8 are exposed as raw `FormulaBoundsPair` values, and referenced type-4009 auxiliary record ids are retained.

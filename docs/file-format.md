@@ -198,6 +198,8 @@ their high-confidence top-level field 1 and field 10000 payloads as raw bytes.
 payloads as nested protobuf messages without assigning subtype semantics.
 `Spreadsheet::sheet_drawable_objects(drawable_id)` follows the raw object graph
 from a drawable into its referenced 5020-5030 drawing/chart cluster objects.
+`sheet_drawable_object_info(drawable_id)` returns the same cluster as resolved
+graph summaries.
 
 Other in-stream types (text storages, drawables, styles, and number formats)
 remain unnamed until confirmed the same way rather than guessed from a single

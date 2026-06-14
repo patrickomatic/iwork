@@ -982,6 +982,8 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                 references.contains(&info.object_id()) && info.archive_path().ends_with(".iwa")
             }));
             let drawable_objects = spreadsheet.sheet_drawable_objects(drawable.object_id());
+            let drawable_object_info = spreadsheet.sheet_drawable_object_info(drawable.object_id());
+            assert_eq!(drawable_object_info.len(), drawable_objects.len());
             assert!(
                 !drawable_objects.is_empty(),
                 "{path} SheetDrawable should expose downstream drawing/chart objects"
@@ -1006,6 +1008,12 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                     .and_then(|id| spreadsheet.object_message(id))
                     .is_some()),
                 "{path} SheetDrawable downstream objects should decode as protobuf messages"
+            );
+            assert!(
+                drawable_object_info.iter().all(|info| (5020..=5030)
+                    .contains(&info.message_type())
+                    && info.archive_path().ends_with(".iwa")),
+                "{path} SheetDrawable downstream object info should stay within the cluster"
             );
         }
         for sheet in spreadsheet.sheets() {
