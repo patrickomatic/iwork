@@ -1,8 +1,9 @@
 //! `Sheet` (message type 2) — a Numbers sheet's name and table membership.
 //!
 //! The sheet name is `Sheet.field 1`, which is UTF-8 across every fixture.
-//! `Sheet.field 2` is a repeated list of object references; filtering those
-//! references to known `TableInfo` objects recovers the sheet's table order.
+//! `Sheet.field 2` is a repeated list of object references. The full list is
+//! retained, and filtering those references to known `TableInfo` objects
+//! recovers the sheet's table order.
 
 use std::collections::{HashMap, HashSet};
 
@@ -21,6 +22,7 @@ const REFERENCE_FIELD_ID: u32 = 1;
 pub struct Sheet {
     id: u64,
     name: Option<String>,
+    object_reference_ids: Vec<u64>,
     table_info_ids: Vec<u64>,
     table_model_ids: Vec<u64>,
 }
@@ -54,9 +56,14 @@ impl Sheet {
             .and_then(|bytes| std::str::from_utf8(bytes).ok())
             .map(str::to_owned);
 
-        let table_info_ids: Vec<u64> = message
+        let object_reference_ids: Vec<u64> = message
             .fields_by_number(FIELD_OBJECT_REFERENCES)
             .filter_map(|field| decode_reference_id(&field.value))
+            .collect();
+
+        let table_info_ids: Vec<u64> = object_reference_ids
+            .iter()
+            .copied()
             .filter(|id| table_info_to_model_ids.contains_key(id))
             .collect();
 
@@ -71,6 +78,7 @@ impl Sheet {
         Some(Self {
             id,
             name,
+            object_reference_ids,
             table_info_ids,
             table_model_ids,
         })
@@ -84,6 +92,14 @@ impl Sheet {
     /// The sheet's display name as shown in Numbers, if present.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    /// Identifiers from the sheet's raw object-reference list, in stored order.
+    ///
+    /// This includes table wrappers plus other sheet-level objects whose exact
+    /// roles are still being mapped.
+    pub fn object_reference_ids(&self) -> &[u64] {
+        &self.object_reference_ids
     }
 
     /// Identifiers of the `TableInfo` wrapper objects referenced by this sheet,

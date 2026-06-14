@@ -948,6 +948,42 @@ fn numbers_sheets_expose_names_and_table_membership() -> Result<(), Error> {
             .all(|sheet| !sheet.table_info_ids().is_empty()),
         "each decoded sheet should retain its TableInfo references"
     );
+    assert!(
+        sheets.iter().all(|sheet| {
+            sheet
+                .table_info_ids()
+                .iter()
+                .all(|table_info_id| sheet.object_reference_ids().contains(table_info_id))
+        }),
+        "sheet TableInfo references should be a filtered subset of raw object references"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn sheets_retain_non_table_object_references() -> Result<(), Error> {
+    let mut saw_non_table_reference = false;
+
+    for path in NUMBERS_EXAMPLES {
+        let spreadsheet = numbers::Document::open(path)?.spreadsheet()?;
+        for sheet in spreadsheet.sheets() {
+            assert!(
+                !sheet.object_reference_ids().is_empty(),
+                "{path} sheet {:?} should expose raw object references",
+                sheet.name(),
+            );
+            saw_non_table_reference |= sheet
+                .object_reference_ids()
+                .iter()
+                .any(|id| !sheet.table_info_ids().contains(id));
+        }
+    }
+
+    assert!(
+        saw_non_table_reference,
+        "fixtures should include at least one sheet reference outside TableInfo"
+    );
 
     Ok(())
 }
