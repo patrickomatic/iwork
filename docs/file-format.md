@@ -295,11 +295,15 @@ Records without field 11 may have attributes in nearby `0x5a` payload messages (
 plus object references. The currently grounded fields are:
 
 - Field 1: sheet name (UTF-8 string)
-- Field 2: repeated object references (`{ field 1: object id }`); filtering the
-  referenced ids to known `TableInfo` objects recovers the sheet's table order
+- Field 2: repeated object references (`{ field 1: object id }`); the API
+  retains the full raw list as `Sheet::object_reference_ids()`. Filtering the
+  referenced ids to known `TableInfo` objects recovers the sheet's table order.
+  Non-table references are present in current fixtures and are retained for
+  future sheet-level drawable/chart/pivot decoding.
 
 `numbers::Spreadsheet::sheets()` exposes the decoded sheet name, the retained
-`TableInfo` ids, and the `TableModel` ids resolved through the object graph.
+raw object references, `TableInfo` ids, and the `TableModel` ids resolved
+through the object graph.
 
 ## TableModel (message type 6001)
 
