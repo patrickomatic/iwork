@@ -29,11 +29,11 @@ const MEDIA_TYPE: u64 = 3005;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Body {
-    template_name: Option<String>,
-    title: Option<String>,
-    headings: Vec<String>,
-    text_fragments: Vec<String>,
-    media_descriptions: Vec<String>,
+    pub(crate) template_name: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) headings: Vec<String>,
+    pub(crate) text_fragments: Vec<String>,
+    pub(crate) media_descriptions: Vec<String>,
 }
 
 impl Body {
@@ -89,6 +89,16 @@ impl Body {
     /// Decoded from type-3005 field `1.8`.
     pub fn media_descriptions(&self) -> &[String] {
         &self.media_descriptions
+    }
+
+    /// Sets the template name for encoding.
+    pub fn set_template_name(&mut self, name: Option<String>) {
+        self.template_name = name;
+    }
+
+    /// Replaces the text fragments for encoding.
+    pub fn set_text_fragments(&mut self, fragments: Vec<String>) {
+        self.text_fragments = fragments;
     }
 }
 

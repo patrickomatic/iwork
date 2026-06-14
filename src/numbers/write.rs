@@ -2,7 +2,11 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::CellValue;
-use crate::iwa::{IwaArchive, IwaArchiveDescriptor, IwaObjectReference, IwaPacket};
+use crate::encode::{
+    self, encode_infra_archives, object_reference, properties_plist,
+    synthesize_header, synthesize_header_with_references,
+};
+use crate::iwa::{IwaArchive, IwaObjectReference};
 use crate::protobuf::{ProtoField, ProtoMessage};
 use crate::package::PackageWriter;
 use crate::Error;
@@ -42,23 +46,26 @@ impl Workbook {
     /// complete Apple Numbers document graph.
     pub fn to_numbers_bytes(&self) -> Result<Vec<u8>, Error> {
         let mut writer = PackageWriter::new();
+        let infra = encode_infra_archives(
+            DOCUMENT_ROOT_ID,
+            METADATA_ROOT_ID,
+            OBJECT_CONTAINER_ROOT_ID,
+            DOCUMENT_METADATA_ROOT_ID,
+            ANNOTATION_AUTHOR_STORAGE_ROOT_ID,
+            STYLESHEET_ROOT_ID,
+        )?;
+
         writer
             .add_entry("Metadata/Properties.plist", properties_plist())
-            .add_entry("Metadata/DocumentIdentifier", document_identifier())
+            .add_entry("Metadata/DocumentIdentifier", encode::document_identifier())
             .add_entry(
                 "Metadata/BuildVersionHistory.plist",
-                build_version_history_plist(),
+                encode::build_version_history_plist(),
             )
             .add_entry("Index/Document.iwa", encode_document_archive()?)
-            .add_entry(
-                "Index/DocumentMetadata.iwa",
-                encode_document_metadata_archive()?,
-            )
-            .add_entry("Index/Metadata.iwa", encode_metadata_archive()?)
-            .add_entry(
-                "Index/ObjectContainer.iwa",
-                encode_object_container_archive()?,
-            )
+            .add_entry("Index/DocumentMetadata.iwa", infra.document_metadata)
+            .add_entry("Index/Metadata.iwa", infra.metadata)
+            .add_entry("Index/ObjectContainer.iwa", infra.object_container)
             .add_entry(
                 "Index/CalculationEngine.iwa",
                 encode_calculation_engine_archive()?,
@@ -66,12 +73,9 @@ impl Workbook {
             .add_entry("Index/ViewState.iwa", encode_view_state_archive()?)
             .add_entry(
                 "Index/AnnotationAuthorStorage.iwa",
-                encode_empty_archive(80, 11009)?,
+                infra.annotation_author_storage,
             )
-            .add_entry(
-                "Index/DocumentStylesheet.iwa",
-                encode_document_stylesheet_archive()?,
-            );
+            .add_entry("Index/DocumentStylesheet.iwa", infra.document_stylesheet);
 
         for archive in self.encode_table_archives()? {
             writer
@@ -169,8 +173,6 @@ const TILE_OFFSET_SLOTS: usize = 255;
 /// Constant `TileRowInfo.f5` cell-storage marker observed across real tiles.
 const TILE_ROW_STORAGE_VERSION: u64 = 5;
 const FLAG_FORMULA_RESULT: u32 = 0x0200;
-/// `MessageInfo.version` triple (`f2`) carried by every real archive header.
-const ARCHIVE_VERSION: [u8; 3] = [1, 0, 5];
 
 const DOCUMENT_ROOT_ID: u64 = 1;
 const METADATA_ROOT_ID: u64 = 2;
@@ -181,54 +183,6 @@ const CALCULATION_ENGINE_ROOT_ID: u64 = 1_000;
 const VIEW_STATE_ROOT_ID: u64 = 1_001;
 const STYLESHEET_ROOT_ID: u64 = 1_002;
 
-fn properties_plist() -> Vec<u8> {
-    br#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>documentUUID</key>
-  <string>iwork-rs-generated-document</string>
-  <key>fileFormatVersion</key>
-  <string>14.4.1</string>
-  <key>isMultiPage</key>
-  <false/>
-  <key>revision</key>
-  <string>1</string>
-  <key>stableDocumentUUID</key>
-  <string>iwork-rs-generated-document</string>
-  <key>versionUUID</key>
-  <string>iwork-rs-generated-version</string>
-</dict>
-</plist>
-"#
-    .to_vec()
-}
-
-fn document_identifier() -> Vec<u8> {
-    b"iwork-rs-generated-document".to_vec()
-}
-
-fn build_version_history_plist() -> Vec<u8> {
-    br#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<array>
-  <dict>
-    <key>app</key>
-    <string>iwork-rs</string>
-    <key>version</key>
-    <string>0.1.0</string>
-  </dict>
-</array>
-</plist>
-"#
-    .to_vec()
-}
-
-fn encode_empty_archive(root_object_id: u64, kind: u64) -> Result<Vec<u8>, Error> {
-    let header = synthesize_header(root_object_id, kind, 0)?;
-    IwaArchive::encode(header, Vec::new())
-}
 
 fn encode_document_archive() -> Result<Vec<u8>, Error> {
     let body = encode_document_body()?;
@@ -273,56 +227,6 @@ fn encode_document_body() -> Result<Vec<u8>, Error> {
     .encode()
 }
 
-fn encode_document_metadata_archive() -> Result<Vec<u8>, Error> {
-    let body = ProtoMessage::new(vec![
-        ProtoField::varint(1, 0),
-        ProtoField::bytes(3, Vec::new()),
-    ])
-    .encode()?;
-    let header = synthesize_header_with_references(
-        DOCUMENT_METADATA_ROOT_ID,
-        11011,
-        body.len(),
-        vec![IwaObjectReference {
-            object_id: Some(DOCUMENT_ROOT_ID),
-            kind_hint: Some(3),
-            state_hint: Some(1),
-        }],
-    )?;
-    IwaArchive::encode(header, body)
-}
-
-fn encode_metadata_archive() -> Result<Vec<u8>, Error> {
-    let body = ProtoMessage::new(vec![
-        ProtoField::varint(1, 0),
-        ProtoField::bytes(2, object_reference(DOCUMENT_ROOT_ID)?),
-        ProtoField::bytes(3, object_reference(DOCUMENT_METADATA_ROOT_ID)?),
-        ProtoField::bytes(4, object_reference(OBJECT_CONTAINER_ROOT_ID)?),
-    ])
-    .encode()?;
-    let header = synthesize_header_with_references(
-        METADATA_ROOT_ID,
-        11006,
-        body.len(),
-        vec![IwaObjectReference {
-            object_id: Some(DOCUMENT_ROOT_ID),
-            kind_hint: Some(1),
-            state_hint: Some(1),
-        }],
-    )?;
-    IwaArchive::encode(header, body)
-}
-
-fn encode_object_container_archive() -> Result<Vec<u8>, Error> {
-    let body = ProtoMessage::new(vec![
-        ProtoField::varint(1, 0),
-        ProtoField::bytes(2, object_reference(DOCUMENT_ROOT_ID)?),
-    ])
-    .encode()?;
-    let header = synthesize_header(OBJECT_CONTAINER_ROOT_ID, 11008, body.len())?;
-    IwaArchive::encode(header, body)
-}
-
 fn encode_calculation_engine_archive() -> Result<Vec<u8>, Error> {
     let body =
         ProtoMessage::new(vec![ProtoField::varint(1, 0), ProtoField::varint(5, 0)]).encode()?;
@@ -347,42 +251,6 @@ fn encode_view_state_archive() -> Result<Vec<u8>, Error> {
     .encode()?;
     let header = synthesize_header(VIEW_STATE_ROOT_ID, 11012, body.len())?;
     IwaArchive::encode(header, body)
-}
-
-fn encode_document_stylesheet_archive() -> Result<Vec<u8>, Error> {
-    let body = ProtoMessage::new(vec![
-        ProtoField::message(
-            2,
-            &ProtoMessage::new(vec![
-                ProtoField::string(1, "Normal"),
-                ProtoField::bytes(2, object_reference(STYLESHEET_ROOT_ID)?),
-            ]),
-        )?,
-        ProtoField::message(
-            2,
-            &ProtoMessage::new(vec![
-                ProtoField::string(1, "Bold"),
-                ProtoField::bytes(2, object_reference(STYLESHEET_ROOT_ID + 1)?),
-                ProtoField::message(11, &ProtoMessage::new(vec![ProtoField::varint(1, 1)]))?,
-            ]),
-        )?,
-    ])
-    .encode()?;
-    let header = synthesize_header_with_references(
-        STYLESHEET_ROOT_ID,
-        2,
-        body.len(),
-        vec![IwaObjectReference {
-            object_id: Some(DOCUMENT_ROOT_ID),
-            kind_hint: Some(1),
-            state_hint: Some(0),
-        }],
-    )?;
-    IwaArchive::encode(header, body)
-}
-
-fn object_reference(object_id: u64) -> Result<Vec<u8>, Error> {
-    ProtoMessage::new(vec![ProtoField::varint(1, object_id)]).encode()
 }
 
 fn encode_tile_archive(
@@ -433,29 +301,6 @@ fn encode_tile_body(
     fields.push(ProtoField::varint(7, 1));
 
     ProtoMessage::new(fields).encode()
-}
-
-/// Builds an archive header packet for a freshly synthesized body.
-fn synthesize_header(root_object_id: u64, kind: u64, body_len: usize) -> Result<IwaPacket, Error> {
-    synthesize_header_with_references(root_object_id, kind, body_len, Vec::new())
-}
-
-fn synthesize_header_with_references(
-    root_object_id: u64,
-    kind: u64,
-    body_len: usize,
-    object_references: Vec<IwaObjectReference>,
-) -> Result<IwaPacket, Error> {
-    let descriptor = IwaArchiveDescriptor {
-        root_object_id: Some(root_object_id),
-        kind_hint: Some(kind),
-        message_version: Some(ARCHIVE_VERSION.to_vec()),
-        body_hint: Some(
-            u64::try_from(body_len).map_err(|_| Error::InvalidIwa("body length overflow"))?,
-        ),
-        object_references,
-    };
-    Ok(IwaPacket::new(descriptor.encode_message()?.encode()?))
 }
 
 fn encode_string_datalist_archive(strings: &BTreeMap<String, u32>) -> Result<Vec<u8>, Error> {

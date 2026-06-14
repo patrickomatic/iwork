@@ -10,9 +10,10 @@
 use std::path::Path;
 
 use crate::package::Package;
-use crate::{DocumentKind, Error, InspectionReport};
+use crate::{DocumentKind, Error, InspectionReport, IWorkDocument};
 
 mod presentation;
+mod write;
 
 pub use presentation::{Presentation, Slide};
 
@@ -49,5 +50,23 @@ impl Document {
 
     pub fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
         self.package.inspect(path)
+    }
+}
+
+impl IWorkDocument for Document {
+    fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+        Self::open(path)
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error> {
+        Self::from_bytes(bytes)
+    }
+
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        self.presentation()?.to_keynote_bytes()
+    }
+
+    fn inspect(&self, path: impl Into<String>) -> Result<InspectionReport, Error> {
+        Self::inspect(self, path)
     }
 }
