@@ -39,6 +39,14 @@ const TSWP_TEXT_TYPE: u64 = 2001;
 /// Validated across all Keynote fixtures that include images.
 const MEDIA_TYPE: u64 = 3005;
 
+/// Message type of the slide root object.
+///
+/// `field 10` (bytes → UTF-8): human-readable layout name, e.g. `"Blank"`,
+/// `"Photo"`, `"Bullets"`. Present only in `TemplateSlide-*.iwa` archives
+/// (layout masters); absent in real `Slide-*.iwa` archives. Validated across
+/// all 14 layout masters in `with_content.key`; 14 distinct names, one per master.
+const SLIDE_TYPE: u64 = 5;
+
 const DOCUMENT_ENTRY: &str = "Index/Document.iwa";
 
 /// Prefix that identifies a real (non-template) slide archive.
@@ -173,6 +181,21 @@ fn decode_placeholder_text(archive: &IwaArchive, kind: u64, sep: &str) -> Option
         })
 }
 
+/// Reads the layout name from the type-5 slide root object.
+///
+/// Field path: `field 10` (UTF-8 bytes). Present only in `TemplateSlide-*.iwa`
+/// archives; absent in real slides. Returns `None` when the field is missing or
+/// not valid UTF-8.
+fn decode_layout_name(archive: &IwaArchive) -> Option<String> {
+    archive
+        .objects()
+        .iter()
+        .find(|o| o.message_type == Some(SLIDE_TYPE))
+        .and_then(|o| ProtoMessage::decode(&o.payload).ok())
+        .and_then(|msg| msg.field(10).and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec)))
+        .and_then(|b| String::from_utf8(b).ok())
+}
+
 fn decode_slide_title(archive: &IwaArchive) -> Option<String> {
     decode_placeholder_text(archive, PLACEHOLDER_TITLE, " ")
 }
@@ -268,10 +291,11 @@ impl Slide {
         let speaker_notes = decode_speaker_notes(archive);
         let text_fragments = decode_tswp_text(archive);
         let media_descriptions = decode_media_descriptions(archive);
+        let layout_name = decode_layout_name(archive);
 
         Self {
             is_template: path.starts_with(TEMPLATE_PREFIX),
-            layout_name: None,
+            layout_name,
             media_descriptions,
             path,
             speaker_notes,

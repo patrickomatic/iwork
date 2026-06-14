@@ -172,6 +172,38 @@ fn keynote_slide_template_distinction() -> Result<(), Error> {
 }
 
 #[test]
+fn keynote_template_slides_expose_layout_name() -> Result<(), Error> {
+    let presentation =
+        keynote::Document::open("examples/keynote/with_content.key")?.presentation()?;
+
+    let templates: Vec<_> = presentation.slides().iter().filter(|s| s.is_template()).collect();
+    assert!(!templates.is_empty(), "expected template slides");
+
+    assert!(
+        templates.iter().all(|s| s.layout_name().is_some()),
+        "all template slides should have a layout name"
+    );
+
+    let names: Vec<_> = templates.iter().filter_map(|s| s.layout_name()).collect();
+    assert!(
+        names.contains(&"Blank"),
+        "expected 'Blank' layout, got: {names:?}"
+    );
+    assert!(
+        names.contains(&"Photo"),
+        "expected 'Photo' layout, got: {names:?}"
+    );
+
+    let real_slides: Vec<_> = presentation.slides().iter().filter(|s| !s.is_template()).collect();
+    assert!(
+        real_slides.iter().all(|s| s.layout_name().is_none()),
+        "real slides should not have a layout name"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn keynote_slides_expose_media_descriptions() -> Result<(), Error> {
     // blueprint.key real slides carry image alt-text; validate at least the
     // first real slide with media has the expected descriptions.
