@@ -199,7 +199,9 @@ payloads as nested protobuf messages without assigning subtype semantics.
 `Spreadsheet::sheet_drawable_objects(drawable_id)` follows the raw object graph
 from a drawable into its referenced 5020-5030 drawing/chart cluster objects.
 `sheet_drawable_object_info(drawable_id)` returns the same cluster as resolved
-graph summaries.
+graph summaries, and `sheet_drawable_cluster_type_counts(drawable_id)` exposes
+the raw message-type composition for corpus comparison without assigning subtype
+names prematurely.
 
 Other in-stream types (text storages, drawables, styles, and number formats)
 remain unnamed until confirmed the same way rather than guessed from a single

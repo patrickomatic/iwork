@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::drawable::{SheetDrawable, SHEET_DRAWABLE_TYPE};
 use super::formula::{FormulaAuxiliaryRecord, FormulaRecord};
@@ -195,6 +195,17 @@ impl Spreadsheet {
             .filter_map(|object| object.identifier)
             .filter_map(|object_id| self.object_info(object_id))
             .collect()
+    }
+
+    /// Counts raw 5020-5030 downstream object types referenced by a sheet drawable.
+    pub fn sheet_drawable_cluster_type_counts(&self, drawable_id: u64) -> BTreeMap<u64, usize> {
+        let mut counts = BTreeMap::new();
+        for object in self.sheet_drawable_objects(drawable_id) {
+            if let Some(message_type) = object.message_type {
+                *counts.entry(message_type).or_insert(0) += 1;
+            }
+        }
+        counts
     }
 
     /// Heuristic style catalog decoded from `Index/DocumentStylesheet.iwa`.
