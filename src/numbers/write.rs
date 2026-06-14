@@ -150,11 +150,12 @@ fn collect_strings_starting_at(rows: &[Vec<CellValue>], first_key: u32) -> BTree
 
     for row in rows {
         for cell in row {
-            if let Some(value) = cell.as_text()
-                && !map.contains_key(value)
-            {
-                map.insert(value.to_owned(), next_key);
-                next_key += 1;
+            match cell.as_text() {
+                Some(value) if !map.contains_key(value) => {
+                    map.insert(value.to_owned(), next_key);
+                    next_key += 1;
+                }
+                Some(_) | None => {}
             }
         }
     }
