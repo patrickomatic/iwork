@@ -9,7 +9,7 @@ use super::table::{
 };
 use super::table_model::TableModel;
 use super::types::message_type_name;
-use crate::iwa::IwaArchive;
+use crate::iwa::{IwaArchive, IwaObject};
 use crate::package::Package;
 use crate::stylesheet::StylesheetCatalog;
 use crate::Error;
@@ -176,13 +176,18 @@ impl Spreadsheet {
     /// Resolves an object id to its iWork message type, if the object is present
     /// in one of the decoded Numbers archives.
     pub fn object_message_type(&self, object_id: u64) -> Option<u64> {
+        self.object_by_id(object_id)
+            .and_then(|object| object.message_type)
+    }
+
+    /// Finds a decoded object by id across the Numbers archive graph.
+    pub fn object_by_id(&self, object_id: u64) -> Option<IwaObject> {
         self.core_archive_entries()
             .into_iter()
             .map(|(_, archive)| archive)
             .chain(self.table_archives.iter().map(|archive| &archive.archive))
             .flat_map(IwaArchive::objects)
             .find(|object| object.identifier == Some(object_id))
-            .and_then(|object| object.message_type)
     }
 
     /// Resolves an object id to the decoded `.iwa` archive path that contains it.
