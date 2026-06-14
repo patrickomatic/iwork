@@ -11,7 +11,7 @@ cargo clippy --workspace -- -D warnings
 cargo run -- <path-to-iwork-file>   # CLI inspector
 ```
 
-Before committing, always run `cargo test --workspace && cargo clippy --workspace -- -D warnings` and fix all errors.
+After completing any meaningful unit of work: run `cargo test --workspace && cargo clippy --workspace -- -D warnings`, fix all errors, commit to main, and push — without waiting to be asked.
 
 To run a single test:
 ```bash
