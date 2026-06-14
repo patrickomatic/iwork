@@ -973,6 +973,21 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                 "{path} sheet {:?} should expose raw object references",
                 sheet.name(),
             );
+            for object_id in sheet.object_reference_ids() {
+                assert!(
+                    spreadsheet.object_message_type(*object_id).is_some(),
+                    "{path} sheet {:?} reference {object_id} should resolve to an object type",
+                    sheet.name(),
+                );
+            }
+            for table_info_id in sheet.table_info_ids() {
+                assert_eq!(
+                    spreadsheet.object_message_type_name(*table_info_id),
+                    Some("TableInfo"),
+                    "{path} sheet {:?} table reference {table_info_id} should resolve as TableInfo",
+                    sheet.name(),
+                );
+            }
             saw_non_table_reference |= sheet
                 .object_reference_ids()
                 .iter()

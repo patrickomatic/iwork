@@ -8,6 +8,7 @@ use super::table::{
     Table,
 };
 use super::table_model::TableModel;
+use super::types::message_type_name;
 use crate::iwa::IwaArchive;
 use crate::package::Package;
 use crate::stylesheet::StylesheetCatalog;
@@ -172,6 +173,23 @@ impl Spreadsheet {
         &self.table_archives
     }
 
+    /// Resolves an object id to its iWork message type, if the object is present
+    /// in one of the decoded Numbers archives.
+    pub fn object_message_type(&self, object_id: u64) -> Option<u64> {
+        self.core_archives()
+            .into_iter()
+            .chain(self.table_archives.iter().map(|archive| &archive.archive))
+            .flat_map(IwaArchive::objects)
+            .find(|object| object.identifier == Some(object_id))
+            .and_then(|object| object.message_type)
+    }
+
+    /// Resolves an object id to one of the currently grounded type names.
+    pub fn object_message_type_name(&self, object_id: u64) -> Option<&'static str> {
+        self.object_message_type(object_id)
+            .and_then(message_type_name)
+    }
+
     /// Decodes one table's cells, driven by its [`TableModel`].
     ///
     /// Unlike [`Spreadsheet::tables`], this gathers exactly the tiles the model
@@ -231,6 +249,16 @@ impl Spreadsheet {
             .iter()
             .map(|table_archive| &table_archive.archive)
             .find(|archive| archive.descriptor().root_object_id == Some(root_object_id))
+    }
+
+    fn core_archives(&self) -> [&IwaArchive; 5] {
+        [
+            &self.document,
+            &self.document_metadata,
+            &self.metadata,
+            &self.stylesheet,
+            &self.calculation_engine,
+        ]
     }
 
     /// Decodes all table tiles in path order.
