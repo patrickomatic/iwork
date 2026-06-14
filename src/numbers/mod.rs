@@ -36,7 +36,7 @@ pub use formula::{
 };
 pub use header_storage::{HeaderStorageBucket, HeaderStorageEntry};
 pub use sheet::Sheet;
-pub use spreadsheet::{Spreadsheet, TableArchive};
+pub use spreadsheet::{ObjectInfo, Spreadsheet, TableArchive};
 pub use table::{CellValue, Table, TableRow};
 pub use table_model::TableModel;
 pub use types::message_type_name;
