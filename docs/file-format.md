@@ -452,8 +452,10 @@ Entry message fields:
 - Field 4: varint
 
 The reader exposes these as structural entries through
-`numbers::HeaderStorageBucket`; layout semantics for entry fields 2-4 are not
-promoted yet.
+`numbers::HeaderStorageBucket`. `Spreadsheet::table_header_storage(model)`
+returns the resolved row and column buckets for one `TableModel`, preserving the
+validated axis roles without requiring callers to follow `DataStore` object ids
+manually. Layout semantics for entry fields 2-4 are not promoted yet.
 
 ## DataList IWA Format (Index/Tables/DataList*.iwa)
 

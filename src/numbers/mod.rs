@@ -17,10 +17,10 @@
 use std::path::Path;
 
 use crate::package::Package;
-use crate::{DocumentKind, Error, InspectionReport, IWorkDocument};
+use crate::{DocumentKind, Error, IWorkDocument, InspectionReport};
 
-mod formula;
 mod drawable;
+mod formula;
 mod header_storage;
 mod sheet;
 mod spreadsheet;
@@ -34,7 +34,7 @@ pub use formula::{
     FormulaAuxiliaryEntry, FormulaAuxiliaryEntryPayload, FormulaAuxiliaryRecord, FormulaBounds,
     FormulaBoundsPair, FormulaRecord, FormulaRecordKey,
 };
-pub use header_storage::{HeaderStorageBucket, HeaderStorageEntry};
+pub use header_storage::{HeaderStorageBucket, HeaderStorageEntry, TableHeaderStorage};
 pub use sheet::Sheet;
 pub use spreadsheet::{ObjectInfo, Spreadsheet, TableArchive};
 pub use table::{CellValue, Table, TableRow};

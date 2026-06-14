@@ -2,7 +2,7 @@ use crate::inspect::count_keywords;
 use crate::iwa::IwaArchive;
 use crate::package::{Package, PackageSupport, PackageWriter};
 use crate::protobuf::{ProtoField, ProtoMessage};
-use crate::{Document, DocumentKind, Error, keynote, numbers, pages};
+use crate::{keynote, numbers, pages, Document, DocumentKind, Error};
 
 const PERSONAL_BUDGET_EXAMPLE: &str = "examples/numbers/personal_budget.numbers";
 const ATTENDANCE_EXAMPLE: &str = "examples/numbers/attendance.numbers";
@@ -1016,9 +1016,10 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                 "{path} SheetDrawable downstream objects should decode as protobuf messages"
             );
             assert!(
-                drawable_object_info.iter().all(|info| (5020..=5030)
-                    .contains(&info.message_type())
-                    && info.archive_path().ends_with(".iwa")),
+                drawable_object_info
+                    .iter()
+                    .all(|info| (5020..=5030).contains(&info.message_type())
+                        && info.archive_path().ends_with(".iwa")),
                 "{path} SheetDrawable downstream object info should stay within the cluster"
             );
             assert!(
@@ -1127,9 +1128,16 @@ fn table_models_reference_header_storage_buckets() -> Result<(), Error> {
                     .any(|entry| entry.index() == u64::from(model.row_count().saturating_sub(1)));
             }
 
+            let table_header_storage = spreadsheet
+                .table_header_storage(&model)
+                .ok_or(Error::InvalidIwa("missing table header storage"))?;
+            assert_eq!(table_header_storage.row_bucket().id(), row_bucket_id);
+            assert_eq!(table_header_storage.column_bucket().id(), column_bucket_id);
+
             let row_bucket = spreadsheet
                 .header_storage_bucket(row_bucket_id)
                 .ok_or(Error::InvalidIwa("missing row header storage bucket"))?;
+            assert_eq!(table_header_storage.row_bucket(), &row_bucket);
             assert!(
                 row_bucket
                     .entries()
@@ -1142,6 +1150,7 @@ fn table_models_reference_header_storage_buckets() -> Result<(), Error> {
             let column_bucket = spreadsheet
                 .header_storage_bucket(column_bucket_id)
                 .ok_or(Error::InvalidIwa("missing column header storage bucket"))?;
+            assert_eq!(table_header_storage.column_bucket(), &column_bucket);
             assert!(
                 column_bucket
                     .entries()

@@ -55,6 +55,32 @@ impl HeaderStorageBucket {
     }
 }
 
+/// Header storage buckets for the two axes of one table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableHeaderStorage {
+    row_bucket: HeaderStorageBucket,
+    column_bucket: HeaderStorageBucket,
+}
+
+impl TableHeaderStorage {
+    pub(crate) fn new(row_bucket: HeaderStorageBucket, column_bucket: HeaderStorageBucket) -> Self {
+        Self {
+            row_bucket,
+            column_bucket,
+        }
+    }
+
+    /// Bucket whose entries index table rows.
+    pub fn row_bucket(&self) -> &HeaderStorageBucket {
+        &self.row_bucket
+    }
+
+    /// Bucket whose entries index table columns.
+    pub fn column_bucket(&self) -> &HeaderStorageBucket {
+        &self.column_bucket
+    }
+}
+
 /// One structural entry in a `HeaderStorageBucket`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderStorageEntry {

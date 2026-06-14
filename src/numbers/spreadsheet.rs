@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::drawable::{SheetDrawable, SHEET_DRAWABLE_TYPE};
 use super::formula::{FormulaAuxiliaryRecord, FormulaRecord};
-use super::header_storage::HeaderStorageBucket;
+use super::header_storage::{HeaderStorageBucket, TableHeaderStorage};
 use super::sheet::{table_info_to_model_ids, Sheet};
 use super::table::{
     decode_cell_format_datalist, decode_rich_text_datalist, decode_string_datalist, CellFormat,
@@ -12,7 +12,7 @@ use super::table_model::TableModel;
 use super::types::message_type_name;
 use crate::iwa::{IwaArchive, IwaObject};
 use crate::package::Package;
-use crate::protobuf::{ProtoMessage, read_varint};
+use crate::protobuf::{read_varint, ProtoMessage};
 use crate::stylesheet::StylesheetCatalog;
 use crate::Error;
 
@@ -217,6 +217,13 @@ impl Spreadsheet {
     pub fn header_storage_bucket(&self, root_object_id: u64) -> Option<HeaderStorageBucket> {
         self.archive_by_root(root_object_id)
             .and_then(HeaderStorageBucket::from_archive)
+    }
+
+    /// Resolves the row- and column-indexed header storage buckets for a table.
+    pub fn table_header_storage(&self, model: &TableModel) -> Option<TableHeaderStorage> {
+        let row_bucket = self.header_storage_bucket(model.row_header_storage_bucket_id()?)?;
+        let column_bucket = self.header_storage_bucket(model.column_header_storage_bucket_id()?)?;
+        Some(TableHeaderStorage::new(row_bucket, column_bucket))
     }
 
     /// All decoded `Index/Tables/*.iwa` archives (tiles, data lists, etc.),
