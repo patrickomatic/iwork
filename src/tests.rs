@@ -675,6 +675,16 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         .formula_auxiliary_record(auxiliary_id)
         .ok_or(Error::InvalidIwa("missing formula auxiliary record"))?;
     assert_eq!(auxiliary.object_id(), auxiliary_id);
+    let resolved_auxiliary = spreadsheet.formula_auxiliary_records_for(&record);
+    assert_eq!(
+        resolved_auxiliary.len(),
+        record.auxiliary_record_ids().len()
+    );
+    assert!(resolved_auxiliary.iter().all(|auxiliary| {
+        record
+            .auxiliary_record_ids()
+            .contains(&auxiliary.object_id())
+    }));
 
     // Currency cell: decoded as CellValue::Currency with "USD" code.
     let currency = cells.iter().find_map(|c| {

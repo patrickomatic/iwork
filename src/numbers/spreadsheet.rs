@@ -144,6 +144,18 @@ impl Spreadsheet {
             .find(|record| record.object_id() == object_id)
     }
 
+    /// Resolves the type-4009 auxiliary records referenced by one formula record.
+    pub fn formula_auxiliary_records_for(
+        &self,
+        formula_record: &FormulaRecord,
+    ) -> Vec<FormulaAuxiliaryRecord> {
+        formula_record
+            .auxiliary_record_ids()
+            .iter()
+            .filter_map(|object_id| self.formula_auxiliary_record(*object_id))
+            .collect()
+    }
+
     /// Decodes the document's sheets and their table membership.
     ///
     /// Sheet objects live in `Index/Document.iwa`. Each sheet carries its

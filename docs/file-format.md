@@ -418,7 +418,9 @@ type-4008 record. Some formula-result cell ids do not resolve here yet; the
 expression/dependency payload remains unmapped.
 
 Some `FormulaRecord` payloads structurally reference type-4009 objects by object
-id. `FormulaRecord::auxiliary_record_ids()` exposes those ids.
+id. `FormulaRecord::auxiliary_record_ids()` exposes those ids, and
+`Spreadsheet::formula_auxiliary_records_for(record)` resolves them to decoded
+`FormulaAuxiliaryRecord` objects.
 
 ## FormulaAuxiliaryRecord (message type 4009)
 
