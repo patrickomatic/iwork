@@ -179,7 +179,9 @@ structural evidence by one of two methods:
 The table chain `Sheet → TableInfo → TableModel → Tile + DataList +
 HeaderStorageBucket` was recovered structurally: object identifiers are large
 unique integers, so a payload varint equal to another object's identifier is a
-reliable reference edge. `Sheet` (2) objects are referenced directly by the
+reliable reference edge. `Spreadsheet::object_reference_type_counts(id)` provides
+a schema-neutral message-type summary for those outgoing edges. `Sheet` (2)
+objects are referenced directly by the
 `Document` root with a count equal to the document's sheet count; field 1 is the
 sheet name and field 2 carries ordered object references that include the
 sheet's `TableInfo` objects. The `TableModel` (6001) references its storage

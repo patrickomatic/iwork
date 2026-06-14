@@ -300,6 +300,15 @@ impl Spreadsheet {
             .collect()
     }
 
+    /// Counts referenced object message types for any decoded object.
+    pub fn object_reference_type_counts(&self, object_id: u64) -> BTreeMap<u64, usize> {
+        let mut counts = BTreeMap::new();
+        for info in self.object_reference_info(object_id) {
+            *counts.entry(info.message_type()).or_insert(0) += 1;
+        }
+        counts
+    }
+
     /// Resolves an object id to one of the currently grounded type names.
     pub fn object_message_type_name(&self, object_id: u64) -> Option<&'static str> {
         self.object_message_type(object_id)
