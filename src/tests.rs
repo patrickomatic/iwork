@@ -964,6 +964,7 @@ fn numbers_sheets_expose_names_and_table_membership() -> Result<(), Error> {
 #[test]
 fn sheets_retain_non_table_object_references() -> Result<(), Error> {
     let mut saw_non_table_reference = false;
+    let mut saw_sheet_drawable_reference = false;
 
     for path in NUMBERS_EXAMPLES {
         let spreadsheet = numbers::Document::open(path)?.spreadsheet()?;
@@ -1000,12 +1001,19 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                 );
             }
             saw_non_table_reference |= sheet.non_table_object_reference_ids().next().is_some();
+            saw_sheet_drawable_reference |= sheet.non_table_object_reference_ids().any(|id| {
+                spreadsheet.object_message_type_name(id) == Some("SheetDrawable")
+            });
         }
     }
 
     assert!(
         saw_non_table_reference,
         "fixtures should include at least one sheet reference outside TableInfo"
+    );
+    assert!(
+        saw_sheet_drawable_reference,
+        "fixtures should include a non-table sheet reference grounded as SheetDrawable"
     );
 
     Ok(())

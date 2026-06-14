@@ -164,6 +164,7 @@ structural evidence by one of two methods:
 | 4000 | CalculationEngine       | `Index/CalculationEngine.iwa`                   |
 | 4008 | FormulaRecord           | field 2 matches formula ids stored in some cells |
 | 4009 | FormulaAuxiliaryRecord  | referenced by FormulaRecord objects             |
+| 5021 | SheetDrawable           | non-table `Sheet.field 2` reference; hub for 5020-5030 cluster |
 | 6000 | TableInfo               | wraps one TableModel; count = table count       |
 | 6001 | TableModel              | references Tile/DataList/HeaderStorageBucket; holds table name |
 | 6002 | Tile                    | `Index/Tables/Tile*.iwa`                        |
@@ -186,6 +187,11 @@ objects and carries the table name; one `TableInfo` (6000) usually wraps one
 `TableModel`, while some pivot-table structures can reference more than one. The
 `6000`/`6001` objects live inside `Index/CalculationEngine.iwa`, not
 `Index/Document.iwa`.
+
+Type 5021 is grounded as `SheetDrawable`: current fixtures reference every 5021
+object from `Sheet.field 2` as a non-table sheet-level object, and each 5021
+object references the 5020-5030 drawing/chart object cluster. The exact chart
+and drawing subtype semantics of that cluster are still unmapped.
 
 Other in-stream types (text storages, drawables, styles, and number formats)
 remain unnamed until confirmed the same way rather than guessed from a single

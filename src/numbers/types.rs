@@ -25,6 +25,9 @@
 //! - `6001` (TableModel): references the table's `Tile`, `DataList`, and
 //!   `HeaderStorageBucket` storage objects and carries the table name; its count
 //!   equals the number of tables in the document.
+//! - `5021` (SheetDrawable): referenced from `Sheet.field 2` as a non-table
+//!   sheet-level object and acting as the hub for the 5020-5030 drawing/chart
+//!   object cluster.
 //!
 //! Other in-stream types (text storages, drawables, styles, formats) are
 //! intentionally omitted until their identity is confirmed the same way rather
@@ -46,6 +49,7 @@ pub fn message_type_name(message_type: u64) -> Option<&'static str> {
         4000 => "CalculationEngine",
         4008 => "FormulaRecord",
         4009 => "FormulaAuxiliaryRecord",
+        5021 => "SheetDrawable",
         6000 => "TableInfo",
         6001 => "TableModel",
         6002 => "Tile",
@@ -75,6 +79,7 @@ mod tests {
     #[test]
     fn names_table_chain_types() {
         assert_eq!(message_type_name(2), Some("Sheet"));
+        assert_eq!(message_type_name(5021), Some("SheetDrawable"));
         assert_eq!(message_type_name(6000), Some("TableInfo"));
         assert_eq!(message_type_name(6001), Some("TableModel"));
     }
