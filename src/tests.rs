@@ -995,10 +995,7 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                     sheet.name(),
                 );
             }
-            saw_non_table_reference |= sheet
-                .object_reference_ids()
-                .iter()
-                .any(|id| !sheet.table_info_ids().contains(id));
+            saw_non_table_reference |= sheet.non_table_object_reference_ids().next().is_some();
         }
     }
 

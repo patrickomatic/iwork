@@ -108,6 +108,14 @@ impl Sheet {
         &self.table_info_ids
     }
 
+    /// Sheet-level object references that are not known `TableInfo` wrappers.
+    pub fn non_table_object_reference_ids(&self) -> impl Iterator<Item = u64> + '_ {
+        self.object_reference_ids
+            .iter()
+            .copied()
+            .filter(|id| !self.table_info_ids.contains(id))
+    }
+
     /// Identifiers of the `TableModel` objects belonging to this sheet, in sheet
     /// order after resolving through `TableInfo`.
     pub fn table_model_ids(&self) -> &[u64] {
