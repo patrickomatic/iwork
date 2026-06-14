@@ -449,7 +449,9 @@ Entry message fields:
   buckets it indexes table columns. This is cross-validated against every
   table model's declared row/column counts. In the tall `attendance.numbers`
   fixture, the row bucket reaches row 619, matching the table's final row index.
-- Field 2: fixed32 raw bits
+- Field 2: fixed32 raw bits. `HeaderStorageEntry::fixed32_as_f32()`
+  reinterprets those bits as IEEE-754 `f32` for analysis; this is finite and
+  nonnegative across current fixtures, but the layout role is not named yet.
 - Field 3: varint
 - Field 4: varint
 

@@ -1131,6 +1131,13 @@ fn table_models_reference_header_storage_buckets() -> Result<(), Error> {
                     "{path} table {:?} bucket {id} entries should be ordered by index",
                     model.name(),
                 );
+                assert!(
+                    bucket.entries().iter().all(|entry| {
+                        entry.fixed32_as_f32().is_finite() && entry.fixed32_as_f32() >= 0.0
+                    }),
+                    "{path} table {:?} bucket {id} fixed32 values should reinterpret as finite nonnegative f32 values",
+                    model.name(),
+                );
                 saw_tall_table_last_index |= bucket
                     .entries()
                     .iter()

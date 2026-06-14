@@ -118,6 +118,14 @@ impl HeaderStorageEntry {
         self.fixed32_bits
     }
 
+    /// Field 2 reinterpreted as an IEEE-754 `f32`.
+    ///
+    /// This is a wire-level convenience for analysis; the layout role of the
+    /// value is still not named.
+    pub fn fixed32_as_f32(&self) -> f32 {
+        f32::from_bits(self.fixed32_bits)
+    }
+
     /// Raw varint stored in field 3.
     pub fn field3(&self) -> u64 {
         self.field3
