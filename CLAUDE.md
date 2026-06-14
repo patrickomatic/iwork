@@ -62,6 +62,7 @@ Integration tests live in `tests/harness.rs` and are fixture-driven against 9 re
 The Numbers reader has an evidence-backed table path:
 
 - `Spreadsheet::sheets()` decodes `Sheet` objects from `Index/Document.iwa`, with field 1 as the sheet name and field 2 retained as raw object references; the `TableInfo` subset is resolved through `TableInfo -> TableModel`, `Sheet::non_table_object_reference_ids()` exposes the remaining sheet-level references, and `Spreadsheet::object_by_id(id)` / `object_message_type(id)` / `object_archive_path(id)` resolve retained object ids back to their decoded object, raw message type, and containing archive.
+- `Spreadsheet::object_references(id)` scans an object's raw payload for known package object ids and exposes the raw graph edges for follow-on semantic decoders.
 - Message type 5021 is grounded as `SheetDrawable`: a non-table `Sheet.field 2` reference and hub for the 5020-5030 drawing/chart object cluster. Its exact chart/drawing semantics are still unmapped.
 - `Spreadsheet::sheet_drawables()` decodes type-5021 sheet drawables structurally and retains top-level field 1 and field 10000 payloads as raw bytes.
 - `Spreadsheet::table_models()` decodes `TableModel` objects from `Index/CalculationEngine.iwa` (with `Document.iwa` fallback), including table UUID, name, row/column counts, header row/column counts, tile ids, header storage bucket ids, and DataList references.

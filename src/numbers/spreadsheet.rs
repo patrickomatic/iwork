@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::drawable::{SheetDrawable, SHEET_DRAWABLE_TYPE};
 use super::formula::{FormulaAuxiliaryRecord, FormulaRecord};
@@ -12,6 +12,7 @@ use super::table_model::TableModel;
 use super::types::message_type_name;
 use crate::iwa::{IwaArchive, IwaObject};
 use crate::package::Package;
+use crate::protobuf::read_varint;
 use crate::stylesheet::StylesheetCatalog;
 use crate::Error;
 
@@ -225,6 +226,18 @@ impl Spreadsheet {
             })
     }
 
+    /// Returns known package object ids referenced by the object's raw payload.
+    ///
+    /// This scans protobuf varints and retains only values that match another
+    /// decoded object id in the same package.
+    pub fn object_references(&self, object_id: u64) -> Vec<u64> {
+        let Some(object) = self.object_by_id(object_id) else {
+            return Vec::new();
+        };
+        let known_ids = self.known_object_ids();
+        referenced_object_ids(&object.payload, object_id, &known_ids)
+    }
+
     /// Resolves an object id to one of the currently grounded type names.
     pub fn object_message_type_name(&self, object_id: u64) -> Option<&'static str> {
         self.object_message_type(object_id)
@@ -302,6 +315,16 @@ impl Spreadsheet {
         ]
     }
 
+    fn known_object_ids(&self) -> HashSet<u64> {
+        self.core_archive_entries()
+            .into_iter()
+            .map(|(_, archive)| archive)
+            .chain(self.table_archives.iter().map(|archive| &archive.archive))
+            .flat_map(IwaArchive::objects)
+            .filter_map(|object| object.identifier)
+            .collect()
+    }
+
     /// Decodes all table tiles in path order.
     ///
     /// String cells are resolved through any `DataList` archives found under
@@ -330,6 +353,20 @@ fn archive_has_object(archive: &IwaArchive, object_id: u64) -> bool {
         .objects()
         .iter()
         .any(|object| object.identifier == Some(object_id))
+}
+
+fn referenced_object_ids(payload: &[u8], self_id: u64, known_ids: &HashSet<u64>) -> Vec<u64> {
+    let mut referenced = Vec::new();
+    for start in 0..payload.len() {
+        let mut cursor = start;
+        let Ok(value) = read_varint(payload, &mut cursor) else {
+            continue;
+        };
+        if value != self_id && known_ids.contains(&value) && !referenced.contains(&value) {
+            referenced.push(value);
+        }
+    }
+    referenced
 }
 
 #[derive(Debug, Clone)]
