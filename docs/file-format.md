@@ -208,6 +208,8 @@ payloads as nested protobuf messages without assigning subtype semantics.
 from a drawable into its referenced 5020-5030 drawing/chart cluster objects.
 `sheet_drawables_for_object(id)` resolves one raw 5020-5030 object id back to
 the sheet-level drawable(s) that reference it.
+`sheets_for_drawable_object(id)` lifts that reverse lookup back to the owning
+sheet(s).
 `sheet_drawable_object_info(drawable_id)` returns the same cluster as resolved
 graph summaries, and `sheet_drawable_cluster_type_counts(drawable_id)` exposes
 the raw message-type composition for corpus comparison without assigning subtype

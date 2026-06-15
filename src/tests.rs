@@ -1245,6 +1245,17 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                 "{path} SheetDrawable downstream objects should resolve back to the owning drawable"
             );
             assert!(
+                drawable_objects
+                    .iter()
+                    .all(
+                        |object| object.identifier.is_some_and(|object_id| spreadsheet
+                            .sheets_for_drawable_object(object_id)
+                            .iter()
+                            .any(|sheet| sheet.id() == owning_sheet.id()))
+                    ),
+                "{path} SheetDrawable downstream objects should resolve back to the owning sheet"
+            );
+            assert!(
                 drawable_object_info
                     .iter()
                     .all(|info| (5020..=5030).contains(&info.message_type())

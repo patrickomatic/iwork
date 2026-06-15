@@ -71,6 +71,7 @@ The Numbers reader has an evidence-backed table path:
 - `SheetDrawable::info_message()` and `payload_message()` decode those raw payloads as nested protobuf messages while leaving subtype semantics unnamed.
 - `Spreadsheet::sheet_drawable_objects(drawable_id)` follows a type-5021 drawable into referenced raw 5020-5030 drawing/chart cluster objects.
 - `Spreadsheet::sheet_drawables_for_object(id)` resolves one raw 5020-5030 cluster object id back to the sheet-level drawable(s) that reference it.
+- `Spreadsheet::sheets_for_drawable_object(id)` resolves one raw 5020-5030 cluster object id back to the owning sheet(s).
 - `Spreadsheet::sheet_drawable_object_info(drawable_id)` returns those cluster objects as resolved graph summaries.
 - `Spreadsheet::sheet_drawable_cluster_type_counts(drawable_id)` exposes the raw message-type composition of that cluster for corpus comparison without assigning subtype semantics prematurely.
 - `Spreadsheet::table_models()` decodes `TableModel` objects from `Index/CalculationEngine.iwa` (with `Document.iwa` fallback), including table UUID, name, row/column counts, header row/column counts, tile ids, header storage bucket ids, and DataList references.
