@@ -132,6 +132,19 @@ impl Spreadsheet {
             .and_then(|formula_id| self.formula_record(formula_id))
     }
 
+    /// Resolves all type-4008 formula records referenced by cells in a table.
+    pub fn formula_records_for_table(&self, table: &Table) -> Vec<FormulaRecord> {
+        let mut records = table
+            .rows()
+            .iter()
+            .flat_map(|row| row.cells.iter())
+            .filter_map(|cell| self.formula_record_for_cell(cell))
+            .collect::<Vec<_>>();
+        records.sort_by_key(FormulaRecord::formula_id);
+        records.dedup_by_key(|record| record.formula_id());
+        records
+    }
+
     /// Decodes type-4009 formula auxiliary records from `Index/CalculationEngine.iwa`.
     ///
     /// Type-4008 [`FormulaRecord`] objects reference these by object id. The

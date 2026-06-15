@@ -416,7 +416,8 @@ the first decoded join point between tile cells and the formula graph:
 `Spreadsheet::formula_record(id)` resolves formula ids that have a matching
 type-4008 record. `Spreadsheet::formula_record_for_cell(cell)` is the direct
 join from a cached formula-result cell to that record when one exists. Some
-formula-result cell ids do not resolve here yet; the expression/dependency
+formula-result cell ids do not resolve here yet. `formula_records_for_table(table)`
+collects the records referenced by a decoded table. The expression/dependency
 payload remains unmapped.
 
 Some `FormulaRecord` payloads structurally reference type-4009 objects by object

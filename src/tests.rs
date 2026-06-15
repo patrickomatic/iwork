@@ -613,6 +613,19 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         !formula_records.is_empty(),
         "expected type-4008 formula records in the CalculationEngine"
     );
+    let table_formula_records = decoded
+        .iter()
+        .flat_map(|(_, table)| spreadsheet.formula_records_for_table(table))
+        .collect::<Vec<_>>();
+    assert!(
+        !table_formula_records.is_empty(),
+        "expected the decoded table to resolve at least one FormulaRecord"
+    );
+    assert!(
+        table_formula_records
+            .iter()
+            .all(|record| formula_ids.contains(&record.formula_id()))
+    );
     let joined_formula = formula_ids
         .iter()
         .find_map(|formula_id| spreadsheet.formula_record(*formula_id));
