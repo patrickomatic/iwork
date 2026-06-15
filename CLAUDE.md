@@ -67,7 +67,7 @@ The Numbers reader has an evidence-backed table path:
 - `Spreadsheet::object_message(id)` decodes any located object's raw payload as a `ProtoMessage`, giving graph-following code a schema-neutral inspection point.
 - `Spreadsheet::object_info(id)` and `object_reference_info(id)` resolve object ids into compact graph summaries with raw type, grounded role name, and archive path; `object_reference_type_counts(id)` summarizes a node's outgoing references by message type.
 - Message type 5021 is grounded as `SheetDrawable`: a non-table `Sheet.field 2` reference and hub for the 5020-5030 drawing/chart object cluster. Its exact chart/drawing semantics are still unmapped.
-- `Spreadsheet::sheet_drawables()` decodes type-5021 sheet drawables structurally and retains top-level field 1 and field 10000 payloads as raw bytes.
+- `Spreadsheet::sheet_drawables()` decodes type-5021 sheet drawables structurally and retains top-level field 1 and field 10000 payloads as raw bytes. `drawables_for_sheet(sheet)` lifts the same decode to one sheet's non-table objects.
 - `SheetDrawable::info_message()` and `payload_message()` decode those raw payloads as nested protobuf messages while leaving subtype semantics unnamed.
 - `Spreadsheet::sheet_drawable_objects(drawable_id)` follows a type-5021 drawable into referenced raw 5020-5030 drawing/chart cluster objects.
 - `Spreadsheet::sheet_drawable_object_info(drawable_id)` returns those cluster objects as resolved graph summaries.

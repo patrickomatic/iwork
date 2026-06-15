@@ -273,6 +273,17 @@ impl Spreadsheet {
         drawables
     }
 
+    /// Decodes sheet-level drawables referenced by one sheet.
+    pub fn drawables_for_sheet(&self, sheet: &Sheet) -> Vec<SheetDrawable> {
+        let mut drawables: Vec<SheetDrawable> = sheet
+            .non_table_object_reference_ids()
+            .filter_map(|object_id| self.sheet_drawable(object_id))
+            .collect();
+        drawables.sort_by_key(SheetDrawable::object_id);
+        drawables.dedup_by_key(|drawable| drawable.object_id());
+        drawables
+    }
+
     /// Decodes one type-5021 sheet-level drawable by object id.
     pub fn sheet_drawable(&self, object_id: u64) -> Option<SheetDrawable> {
         let object = self.object_by_id(object_id)?;

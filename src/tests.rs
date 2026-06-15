@@ -1159,10 +1159,16 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
             );
         }
         for sheet in spreadsheet.sheets() {
+            let sheet_drawables = spreadsheet.drawables_for_sheet(&sheet);
             assert!(
                 !sheet.object_reference_ids().is_empty(),
                 "{path} sheet {:?} should expose raw object references",
                 sheet.name(),
+            );
+            assert!(
+                sheet_drawables.iter().all(|drawable| {
+                    sheet.object_reference_ids().contains(&drawable.object_id())
+                })
             );
             for object_id in sheet.object_reference_ids() {
                 let object = spreadsheet
@@ -1195,6 +1201,12 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
                 spreadsheet.object_message_type_name(id) == Some("SheetDrawable")
                     && spreadsheet.sheet_drawable(id).is_some()
             });
+            assert!(
+                sheet_drawables
+                    .iter()
+                    .all(|drawable| spreadsheet.sheet_drawable(drawable.object_id()).is_some()),
+                "{path} sheet-level drawables should resolve through the direct object-id lookup"
+            );
         }
     }
 
