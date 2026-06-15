@@ -810,6 +810,8 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
     let mut saw_non_empty_field13 = false;
     let mut saw_non_empty_field14 = false;
     let mut saw_non_empty_field15 = false;
+    let mut saw_decoded_field13_values = false;
+    let mut saw_decoded_field15_values = false;
 
     for path in NUMBERS_EXAMPLES {
         let spreadsheet = numbers::Document::open(path)?.spreadsheet()?;
@@ -847,6 +849,32 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
             saw_non_empty_field15 |= record
                 .field15_bytes()
                 .is_some_and(|bytes| !bytes.is_empty());
+            if record
+                .field13_bytes()
+                .is_some_and(|bytes| !bytes.is_empty())
+            {
+                let values = record.field13_values().ok_or(Error::InvalidIwa(
+                    "missing decoded FormulaRecord field 13 values",
+                ))?;
+                assert!(
+                    !values.is_empty(),
+                    "{path} FormulaRecord field 13 values should not be empty when bytes are non-empty"
+                );
+                saw_decoded_field13_values = true;
+            }
+            if record
+                .field15_bytes()
+                .is_some_and(|bytes| !bytes.is_empty())
+            {
+                let values = record.field15_values().ok_or(Error::InvalidIwa(
+                    "missing decoded FormulaRecord field 15 values",
+                ))?;
+                assert!(
+                    !values.is_empty(),
+                    "{path} FormulaRecord field 15 values should not be empty when bytes are non-empty"
+                );
+                saw_decoded_field15_values = true;
+            }
         }
     }
 
@@ -873,6 +901,14 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
     assert!(
         saw_non_empty_field15,
         "expected at least one retained non-empty FormulaRecord field 15 payload"
+    );
+    assert!(
+        saw_decoded_field13_values,
+        "expected at least one decoded FormulaRecord field 13 value list"
+    );
+    assert!(
+        saw_decoded_field15_values,
+        "expected at least one decoded FormulaRecord field 15 value list"
     );
 
     Ok(())

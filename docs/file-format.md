@@ -421,6 +421,10 @@ the first decoded join point between tile cells and the formula graph:
   `FormulaRecord::field13_bytes()`, `field14_bytes()`, and `field15_bytes()`.
   These fields are structurally present across current fixtures, but their
   payload semantics are still unmapped.
+- Fields 13 and 15: when non-empty, the currently observed payload shape is a
+  repeated list of nested single-varint entries. The reader exposes those as
+  neutral `FormulaRecord::field13_values()` and `field15_values()` accessors
+  without assigning semantics to the values.
 
 `Spreadsheet::formula_records()` exposes these records, and
 `Spreadsheet::formula_record(id)` resolves formula ids that have a matching

@@ -22,6 +22,7 @@ const FIELD_BOUNDS_8: u32 = 8;
 const FIELD_13: u32 = 13;
 const FIELD_14: u32 = 14;
 const FIELD_15: u32 = 15;
+const SINGLE_VALUE_LIST_FIELD: u32 = 1;
 const RECORD_KEY_FIELD_1: u32 = 1;
 const RECORD_KEY_FIELD_2: u32 = 2;
 const EXPRESSION_FIELD_BYTES: u32 = 5;
@@ -48,8 +49,10 @@ pub struct FormulaRecord {
     field7_bounds: Option<FormulaBoundsPair>,
     field8_bounds: Option<FormulaBoundsPair>,
     field13_bytes: Option<Vec<u8>>,
+    field13_values: Option<Vec<u64>>,
     field14_bytes: Option<Vec<u8>>,
     field15_bytes: Option<Vec<u8>>,
+    field15_values: Option<Vec<u64>>,
     auxiliary_record_ids: Vec<u64>,
 }
 
@@ -91,8 +94,10 @@ impl FormulaRecord {
             field7_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_7),
             field8_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_8),
             field13_bytes: decode_raw_bytes(&message, FIELD_13),
+            field13_values: decode_repeated_single_varint_values(&message, FIELD_13),
             field14_bytes: decode_raw_bytes(&message, FIELD_14),
             field15_bytes: decode_raw_bytes(&message, FIELD_15),
+            field15_values: decode_repeated_single_varint_values(&message, FIELD_15),
             auxiliary_record_ids: referenced_auxiliary_ids(object, auxiliary_ids),
         })
     }
@@ -157,6 +162,15 @@ impl FormulaRecord {
         self.field13_bytes.as_deref()
     }
 
+    /// Structurally decoded repeated values carried by field 13.
+    ///
+    /// Non-empty field-13 payloads in the current corpus decode as a repeated
+    /// list of nested single-varint entries. This retains that shape without
+    /// naming the values' role yet.
+    pub fn field13_values(&self) -> Option<&[u64]> {
+        self.field13_values.as_deref()
+    }
+
     /// Raw payload bytes stored in field 14.
     ///
     /// Across current fixtures this field is structurally present but only a
@@ -171,6 +185,15 @@ impl FormulaRecord {
     /// subset of records carry non-empty payloads.
     pub fn field15_bytes(&self) -> Option<&[u8]> {
         self.field15_bytes.as_deref()
+    }
+
+    /// Structurally decoded repeated values carried by field 15.
+    ///
+    /// Non-empty field-15 payloads in the current corpus decode as a repeated
+    /// list of nested single-varint entries. This retains that shape without
+    /// naming the values' role yet.
+    pub fn field15_values(&self) -> Option<&[u64]> {
+        self.field15_values.as_deref()
     }
 
     /// Type-4009 object ids referenced structurally by this formula record.
@@ -482,6 +505,30 @@ fn decode_raw_bytes(message: &ProtoMessage, field_number: u32) -> Option<Vec<u8>
         .field(field_number)
         .and_then(|field| field.value.as_bytes())
         .map(<[u8]>::to_vec)
+}
+
+fn decode_repeated_single_varint_values(
+    message: &ProtoMessage,
+    field_number: u32,
+) -> Option<Vec<u64>> {
+    let nested = message
+        .field(field_number)
+        .and_then(|field| field.value.as_bytes())
+        .and_then(|bytes| ProtoMessage::decode(bytes).ok())?;
+    nested
+        .fields_by_number(SINGLE_VALUE_LIST_FIELD)
+        .map(|field| {
+            field
+                .value
+                .as_bytes()
+                .and_then(|bytes| ProtoMessage::decode(bytes).ok())
+                .and_then(|entry| {
+                    entry
+                        .field(SINGLE_VALUE_LIST_FIELD)
+                        .and_then(|field| field.value.as_varint())
+                })
+        })
+        .collect::<Option<Vec<_>>>()
 }
 
 fn referenced_auxiliary_ids(object: &IwaObject, auxiliary_ids: &HashSet<u64>) -> Vec<u64> {
