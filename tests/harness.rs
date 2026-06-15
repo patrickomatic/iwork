@@ -420,3 +420,51 @@ fn pages_paragraphs_expose_character_runs() -> Result<(), Error> {
     }
     Ok(())
 }
+
+#[test]
+fn pages_paragraphs_expose_list_style() -> Result<(), Error> {
+    // modern_novel.pages is a novel template: most paragraphs have no list style,
+    // but 3 paragraphs use the "Bullet" list style.
+    let body = pages::Document::open("examples/pages/modern_novel.pages")?.document()?;
+    let paras = body.paragraphs();
+
+    // At least some paragraphs have no list style.
+    assert!(
+        paras.iter().any(|p| p.list_style.is_none()),
+        "expected paragraphs without list style"
+    );
+
+    // At least some paragraphs have a non-None list style.
+    let list_paras: Vec<&Paragraph> = paras.iter().filter(|p| p.list_style.is_some()).collect();
+    assert!(
+        !list_paras.is_empty(),
+        "modern_novel.pages should have list paragraphs; paras: {:?}",
+        paras.iter().map(|p| &p.list_style).collect::<Vec<_>>()
+    );
+
+    // All list style values must be non-"None" (we filter "None" out).
+    for p in &list_paras {
+        assert_ne!(
+            p.list_style.as_deref(),
+            Some("None"),
+            "list_style 'None' should map to Option::None"
+        );
+    }
+
+    // For all fixtures: list_style is either None or a non-empty string.
+    for path in PAGES_EXAMPLES {
+        let body = pages::Document::open(path)?.document()?;
+        for para in body.paragraphs() {
+            if let Some(ref name) = para.list_style {
+                assert!(
+                    !name.is_empty(),
+                    "{path}: list_style should not be empty string"
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+use iwork::pages::Paragraph;

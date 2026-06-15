@@ -53,6 +53,12 @@ pub struct Paragraph {
     /// Sourced from the paragraph style referenced in type-2001 field 5, looked
     /// up in the `DocumentStylesheet.iwa` type-401 registry.
     pub style_name: String,
+    /// The list style name for this paragraph, if it belongs to a list.
+    ///
+    /// `None` for non-list paragraphs (including those with list style "None").
+    /// Typical values: `"Bullet"`, `"Bullet 2"`, `"Numbered"`, `"Lettered"`.
+    /// Sourced from type-2001 field 7 → type-2023 list style objects.
+    pub list_style: Option<String>,
     /// The text runs that make up this paragraph's content.
     pub runs: Vec<TextRun>,
 }
@@ -84,7 +90,9 @@ impl Body {
 
         let para_style_map = decode_paragraph_style_map(package)?;
         let char_style_map = decode_char_style_map(package);
-        let paragraphs = decode_paragraphs(&archive, &para_style_map, &char_style_map);
+        let list_style_map = decode_list_style_map(package);
+        let paragraphs =
+            decode_paragraphs(&archive, &para_style_map, &char_style_map, &list_style_map);
         let media_descriptions = decode_media_descriptions(&archive);
 
         let (title, headings, text_fragments) = derive_classified_text(&paragraphs);
@@ -170,6 +178,7 @@ impl Body {
             .into_iter()
             .map(|text| Paragraph {
                 style_name: "Body".to_owned(),
+                list_style: None,
                 runs: vec![TextRun {
                     text,
                     formatting: TextFormatting::default(),
@@ -369,6 +378,43 @@ fn decode_text_formatting(payload: &[u8]) -> TextFormatting {
     }
 }
 
+/// Builds a map from list style object ID → list style name.
+///
+/// Scans `DocumentStylesheet.iwa` for type-2023 list style objects and reads
+/// the name string at `field 1.1`. Paragraphs whose field-7 run ID is in this
+/// map are list items; the name "None" means no active list.
+fn decode_list_style_map(package: &Package) -> HashMap<u64, String> {
+    const LIST_STYLE_TYPE: u64 = 2023;
+
+    let Ok(bytes) = package.entry_bytes(STYLESHEET_ENTRY) else {
+        return HashMap::new();
+    };
+    let Ok(archive) = IwaArchive::decode(bytes) else {
+        return HashMap::new();
+    };
+
+    archive
+        .objects()
+        .into_iter()
+        .filter(|obj| obj.message_type == Some(LIST_STYLE_TYPE))
+        .filter_map(|obj| {
+            let id = obj.identifier?;
+            let msg = ProtoMessage::decode(&obj.payload).ok()?;
+            let name = msg
+                .field(1)
+                .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                .and_then(|b| ProtoMessage::decode(&b).ok())
+                .and_then(|inner| {
+                    inner
+                        .field(1)
+                        .and_then(|f| f.value.as_bytes().map(<[u8]>::to_vec))
+                })
+                .and_then(|b| String::from_utf8(b).ok())?;
+            Some((id, name))
+        })
+        .collect()
+}
+
 /// Decodes paragraph style runs from a type-2001 payload (field 5).
 ///
 /// Returns sorted `(byte_offset, style_name)` pairs. The style name is looked
@@ -527,6 +573,7 @@ fn decode_paragraphs(
     archive: &IwaArchive,
     para_style_map: &HashMap<u64, String>,
     char_style_map: &HashMap<u64, TextFormatting>,
+    list_style_map: &HashMap<u64, String>,
 ) -> Vec<Paragraph> {
     let mut paragraphs = Vec::new();
 
@@ -561,6 +608,7 @@ fn decode_paragraphs(
                     &para_runs,
                     &char_runs,
                     char_style_map,
+                    list_style_map,
                     &mut paragraphs,
                 );
                 para_buf.clear();
@@ -578,6 +626,7 @@ fn decode_paragraphs(
                 &para_runs,
                 &char_runs,
                 char_style_map,
+                list_style_map,
                 &mut paragraphs,
             );
         }
@@ -592,15 +641,24 @@ fn push_paragraph(
     para_runs: &[(usize, String)],
     char_runs: &[(usize, u64)],
     char_style_map: &HashMap<u64, TextFormatting>,
+    list_style_map: &HashMap<u64, String>,
     paragraphs: &mut Vec<Paragraph>,
 ) {
     if raw_text.trim().is_empty() || raw_text.trim().contains('\u{FFFC}') {
         return;
     }
     let style_name = style_at(para_runs, para_start).to_owned();
+    let list_style = char_id_at(char_runs, para_start)
+        .and_then(|id| list_style_map.get(&id))
+        .filter(|name| name.as_str() != "None")
+        .cloned();
     let runs = build_text_runs(raw_text, para_start, char_runs, char_style_map);
     if !runs.is_empty() {
-        paragraphs.push(Paragraph { style_name, runs });
+        paragraphs.push(Paragraph {
+            style_name,
+            list_style,
+            runs,
+        });
     }
 }
 

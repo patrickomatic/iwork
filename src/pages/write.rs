@@ -426,6 +426,7 @@ mod tests {
         body.set_paragraphs(vec![
             Paragraph {
                 style_name: "Title".to_owned(),
+                list_style: None,
                 runs: vec![TextRun {
                     text: "My Novel".to_owned(),
                     formatting: TextFormatting::default(),
@@ -433,6 +434,7 @@ mod tests {
             },
             Paragraph {
                 style_name: "Heading".to_owned(),
+                list_style: None,
                 runs: vec![TextRun {
                     text: "Chapter One".to_owned(),
                     formatting: TextFormatting::default(),
@@ -440,6 +442,7 @@ mod tests {
             },
             Paragraph {
                 style_name: "Body".to_owned(),
+                list_style: None,
                 runs: vec![TextRun {
                     text: "It was a dark and stormy night.".to_owned(),
                     formatting: TextFormatting::default(),
@@ -481,6 +484,7 @@ mod tests {
         let mut body = Body::default();
         body.set_paragraphs(vec![Paragraph {
             style_name: "Body".to_owned(),
+            list_style: None,
             runs: vec![
                 TextRun {
                     text: "plain ".to_owned(),
