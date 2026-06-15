@@ -621,12 +621,27 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         .iter()
         .flat_map(|(model, _)| spreadsheet.formula_records_for_model(model))
         .collect::<Vec<_>>();
+    let sheet_formula_records = spreadsheet
+        .sheets()
+        .iter()
+        .flat_map(|sheet| spreadsheet.formula_records_for_sheet(sheet))
+        .collect::<Vec<_>>();
     assert!(
         !table_formula_records.is_empty(),
         "expected the decoded table to resolve at least one FormulaRecord"
     );
     assert_eq!(
         model_formula_records
+            .iter()
+            .map(numbers::FormulaRecord::formula_id)
+            .collect::<Vec<_>>(),
+        table_formula_records
+            .iter()
+            .map(numbers::FormulaRecord::formula_id)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        sheet_formula_records
             .iter()
             .map(numbers::FormulaRecord::formula_id)
             .collect::<Vec<_>>(),
@@ -726,6 +741,11 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         .iter()
         .flat_map(|(model, _)| spreadsheet.formula_auxiliary_records_for_model(model))
         .collect::<Vec<_>>();
+    let sheet_auxiliary_records = spreadsheet
+        .sheets()
+        .iter()
+        .flat_map(|sheet| spreadsheet.formula_auxiliary_records_for_sheet(sheet))
+        .collect::<Vec<_>>();
     assert!(
         table_auxiliary_records
             .iter()
@@ -734,6 +754,16 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
     );
     assert_eq!(
         model_auxiliary_records
+            .iter()
+            .map(numbers::FormulaAuxiliaryRecord::object_id)
+            .collect::<Vec<_>>(),
+        table_auxiliary_records
+            .iter()
+            .map(numbers::FormulaAuxiliaryRecord::object_id)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        sheet_auxiliary_records
             .iter()
             .map(numbers::FormulaAuxiliaryRecord::object_id)
             .collect::<Vec<_>>(),

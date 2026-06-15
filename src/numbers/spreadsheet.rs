@@ -150,6 +150,20 @@ impl Spreadsheet {
         self.formula_records_for_table(&self.table(model))
     }
 
+    /// Resolves all formula records referenced by the tables belonging to a sheet.
+    pub fn formula_records_for_sheet(&self, sheet: &Sheet) -> Vec<FormulaRecord> {
+        let models = self.table_models();
+        let mut records = sheet
+            .table_model_ids()
+            .iter()
+            .filter_map(|model_id| models.iter().find(|model| model.id() == *model_id))
+            .flat_map(|model| self.formula_records_for_model(model))
+            .collect::<Vec<_>>();
+        records.sort_by_key(FormulaRecord::formula_id);
+        records.dedup_by_key(|record| record.formula_id());
+        records
+    }
+
     /// Decodes type-4009 formula auxiliary records from `Index/CalculationEngine.iwa`.
     ///
     /// Type-4008 [`FormulaRecord`] objects reference these by object id. The
@@ -201,6 +215,21 @@ impl Spreadsheet {
         model: &TableModel,
     ) -> Vec<FormulaAuxiliaryRecord> {
         self.formula_auxiliary_records_for_table(&self.table(model))
+    }
+
+    /// Resolves type-4009 auxiliary records referenced by formula cells in a sheet.
+    pub fn formula_auxiliary_records_for_sheet(
+        &self,
+        sheet: &Sheet,
+    ) -> Vec<FormulaAuxiliaryRecord> {
+        let mut records = self
+            .formula_records_for_sheet(sheet)
+            .iter()
+            .flat_map(|record| self.formula_auxiliary_records_for(record))
+            .collect::<Vec<_>>();
+        records.sort_by_key(FormulaAuxiliaryRecord::object_id);
+        records.dedup_by_key(|record| record.object_id());
+        records
     }
 
     /// Decodes the document's sheets and their table membership.
