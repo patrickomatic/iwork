@@ -425,6 +425,10 @@ the first decoded join point between tile cells and the formula graph:
   `FormulaRecord::field13_bytes()`, `field14_bytes()`, and `field15_bytes()`.
   These fields are structurally present across current fixtures, but their
   payload semantics are still unmapped.
+- Fields 13, 14, and 15 can also be re-decoded as nested `ProtoMessage`
+  payloads via `field13_message()`, `field14_message()`, and
+  `field15_message()` when their retained bytes use the currently observed
+  protobuf shape.
 - Fields 13 and 15: when non-empty, the currently observed payload shape is a
   repeated list of nested single-varint entries. The reader exposes those as
   neutral `FormulaRecord::field13_values()` and `field15_values()` accessors

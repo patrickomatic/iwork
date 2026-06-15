@@ -171,12 +171,24 @@ impl FormulaRecord {
         self.field13_values.as_deref()
     }
 
+    /// Decoded nested message stored in field 13, if the retained bytes form a protobuf message.
+    pub fn field13_message(&self) -> Option<ProtoMessage> {
+        self.field13_bytes()
+            .and_then(|bytes| ProtoMessage::decode(bytes).ok())
+    }
+
     /// Raw payload bytes stored in field 14.
     ///
     /// Across current fixtures this field is structurally present but only a
     /// subset of records carry non-empty payloads.
     pub fn field14_bytes(&self) -> Option<&[u8]> {
         self.field14_bytes.as_deref()
+    }
+
+    /// Decoded nested message stored in field 14, if the retained bytes form a protobuf message.
+    pub fn field14_message(&self) -> Option<ProtoMessage> {
+        self.field14_bytes()
+            .and_then(|bytes| ProtoMessage::decode(bytes).ok())
     }
 
     /// Raw payload bytes stored in field 15.
@@ -194,6 +206,12 @@ impl FormulaRecord {
     /// naming the values' role yet.
     pub fn field15_values(&self) -> Option<&[u64]> {
         self.field15_values.as_deref()
+    }
+
+    /// Decoded nested message stored in field 15, if the retained bytes form a protobuf message.
+    pub fn field15_message(&self) -> Option<ProtoMessage> {
+        self.field15_bytes()
+            .and_then(|bytes| ProtoMessage::decode(bytes).ok())
     }
 
     /// Type-4009 object ids referenced structurally by this formula record.

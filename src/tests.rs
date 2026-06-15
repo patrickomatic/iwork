@@ -811,6 +811,7 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
     let mut saw_non_empty_field14 = false;
     let mut saw_non_empty_field15 = false;
     let mut saw_decoded_field13_values = false;
+    let mut saw_decoded_field14_message = false;
     let mut saw_decoded_field15_values = false;
 
     for path in NUMBERS_EXAMPLES {
@@ -863,6 +864,19 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
                 saw_decoded_field13_values = true;
             }
             if record
+                .field14_bytes()
+                .is_some_and(|bytes| !bytes.is_empty())
+            {
+                let message = record.field14_message().ok_or(Error::InvalidIwa(
+                    "missing decoded FormulaRecord field 14 message",
+                ))?;
+                assert!(
+                    !message.fields().is_empty(),
+                    "{path} FormulaRecord field 14 message should expose fields when bytes are non-empty"
+                );
+                saw_decoded_field14_message = true;
+            }
+            if record
                 .field15_bytes()
                 .is_some_and(|bytes| !bytes.is_empty())
             {
@@ -905,6 +919,10 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
     assert!(
         saw_decoded_field13_values,
         "expected at least one decoded FormulaRecord field 13 value list"
+    );
+    assert!(
+        saw_decoded_field14_message,
+        "expected at least one decoded FormulaRecord field 14 message"
     );
     assert!(
         saw_decoded_field15_values,
