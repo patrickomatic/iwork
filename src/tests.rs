@@ -1018,23 +1018,25 @@ fn numbers_sheets_expose_names_and_table_membership() -> Result<(), Error> {
         vec!["30-Day History".to_owned(), "Portfolio".to_owned()]
     );
 
-    let table_name_for_id = |id: u64| {
-        models
-            .iter()
-            .find(|model| model.id() == id)
-            .and_then(numbers::TableModel::name)
-            .map(str::to_owned)
-    };
-
     let tables_for_sheet = |name: &str| -> Vec<String> {
         sheets
             .iter()
             .find(|sheet| sheet.name() == Some(name))
             .map(|sheet| {
-                sheet
-                    .table_model_ids()
-                    .iter()
-                    .filter_map(|id| table_name_for_id(*id))
+                spreadsheet
+                    .tables_for_sheet(sheet)
+                    .into_iter()
+                    .map(|(model, table)| {
+                        assert_eq!(
+                            u32::try_from(table.rows().len()).unwrap_or(u32::MAX),
+                            model.row_count(),
+                            "decoded sheet table should match declared row count"
+                        );
+                        model
+                            .name()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("model-{}", model.id()))
+                    })
                     .collect()
             })
             .unwrap_or_default()

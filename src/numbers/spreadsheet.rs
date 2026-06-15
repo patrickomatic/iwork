@@ -470,6 +470,19 @@ impl Spreadsheet {
             .collect()
     }
 
+    /// Decodes the tables that belong to a sheet, preserving the sheet's table order.
+    pub fn tables_for_sheet(&self, sheet: &Sheet) -> Vec<(TableModel, Table)> {
+        sheet
+            .table_model_ids()
+            .iter()
+            .filter_map(|model_id| self.table_model(*model_id))
+            .map(|model| {
+                let table = self.table(&model);
+                (model, table)
+            })
+            .collect()
+    }
+
     /// Finds a decoded table archive (`Tile`, `DataList`, …) by its root object id.
     fn archive_by_root(&self, root_object_id: u64) -> Option<&IwaArchive> {
         self.table_archives
