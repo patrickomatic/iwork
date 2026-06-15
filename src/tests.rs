@@ -807,6 +807,9 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
     let mut saw_formula_record = false;
     let mut saw_empty_payload = false;
     let mut saw_non_empty_payload = false;
+    let mut saw_non_empty_field13 = false;
+    let mut saw_non_empty_field14 = false;
+    let mut saw_non_empty_field15 = false;
 
     for path in NUMBERS_EXAMPLES {
         let spreadsheet = numbers::Document::open(path)?.spreadsheet()?;
@@ -823,6 +826,27 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
             );
             saw_empty_payload |= record.expression_bytes().is_empty();
             saw_non_empty_payload |= !record.expression_bytes().is_empty();
+            assert!(
+                record.field13_bytes().is_some(),
+                "{path} FormulaRecord should retain field 13 bytes"
+            );
+            assert!(
+                record.field14_bytes().is_some(),
+                "{path} FormulaRecord should retain field 14 bytes"
+            );
+            assert!(
+                record.field15_bytes().is_some(),
+                "{path} FormulaRecord should retain field 15 bytes"
+            );
+            saw_non_empty_field13 |= record
+                .field13_bytes()
+                .is_some_and(|bytes| !bytes.is_empty());
+            saw_non_empty_field14 |= record
+                .field14_bytes()
+                .is_some_and(|bytes| !bytes.is_empty());
+            saw_non_empty_field15 |= record
+                .field15_bytes()
+                .is_some_and(|bytes| !bytes.is_empty());
         }
     }
 
@@ -837,6 +861,18 @@ fn formula_records_retain_raw_expression_bytes_across_fixtures() -> Result<(), E
     assert!(
         saw_non_empty_payload,
         "expected at least one retained non-empty formula expression payload"
+    );
+    assert!(
+        saw_non_empty_field13,
+        "expected at least one retained non-empty FormulaRecord field 13 payload"
+    );
+    assert!(
+        saw_non_empty_field14,
+        "expected at least one retained non-empty FormulaRecord field 14 payload"
+    );
+    assert!(
+        saw_non_empty_field15,
+        "expected at least one retained non-empty FormulaRecord field 15 payload"
     );
 
     Ok(())

@@ -417,6 +417,10 @@ the first decoded join point between tile cells and the formula graph:
   records use sentinel maxima `(32767, 2147483647, 32767, 2147483647)`; a
   subset carries concrete bounds. Their exact formula-graph role is not named
   yet, so the API exposes them as raw `FormulaBoundsPair` values.
+- Fields 13, 14, and 15: length-delimited payloads retained as raw bytes via
+  `FormulaRecord::field13_bytes()`, `field14_bytes()`, and `field15_bytes()`.
+  These fields are structurally present across current fixtures, but their
+  payload semantics are still unmapped.
 
 `Spreadsheet::formula_records()` exposes these records, and
 `Spreadsheet::formula_record(id)` resolves formula ids that have a matching

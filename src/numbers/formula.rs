@@ -19,6 +19,9 @@ const FIELD_RECORD_KEY: u32 = 1;
 const FIELD_EXPRESSION: u32 = 6;
 const FIELD_BOUNDS_7: u32 = 7;
 const FIELD_BOUNDS_8: u32 = 8;
+const FIELD_13: u32 = 13;
+const FIELD_14: u32 = 14;
+const FIELD_15: u32 = 15;
 const RECORD_KEY_FIELD_1: u32 = 1;
 const RECORD_KEY_FIELD_2: u32 = 2;
 const EXPRESSION_FIELD_BYTES: u32 = 5;
@@ -44,6 +47,9 @@ pub struct FormulaRecord {
     expression: FormulaExpression,
     field7_bounds: Option<FormulaBoundsPair>,
     field8_bounds: Option<FormulaBoundsPair>,
+    field13_bytes: Option<Vec<u8>>,
+    field14_bytes: Option<Vec<u8>>,
+    field15_bytes: Option<Vec<u8>>,
     auxiliary_record_ids: Vec<u64>,
 }
 
@@ -84,6 +90,9 @@ impl FormulaRecord {
             expression: decode_expression(&message)?,
             field7_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_7),
             field8_bounds: decode_bounds_pair(&message, FIELD_BOUNDS_8),
+            field13_bytes: decode_raw_bytes(&message, FIELD_13),
+            field14_bytes: decode_raw_bytes(&message, FIELD_14),
+            field15_bytes: decode_raw_bytes(&message, FIELD_15),
             auxiliary_record_ids: referenced_auxiliary_ids(object, auxiliary_ids),
         })
     }
@@ -138,6 +147,30 @@ impl FormulaRecord {
     /// still under investigation.
     pub fn field8_bounds(&self) -> Option<&FormulaBoundsPair> {
         self.field8_bounds.as_ref()
+    }
+
+    /// Raw payload bytes stored in field 13.
+    ///
+    /// This field is length-delimited across current fixtures, but its
+    /// semantics are not named yet.
+    pub fn field13_bytes(&self) -> Option<&[u8]> {
+        self.field13_bytes.as_deref()
+    }
+
+    /// Raw payload bytes stored in field 14.
+    ///
+    /// Across current fixtures this field is structurally present but only a
+    /// subset of records carry non-empty payloads.
+    pub fn field14_bytes(&self) -> Option<&[u8]> {
+        self.field14_bytes.as_deref()
+    }
+
+    /// Raw payload bytes stored in field 15.
+    ///
+    /// Across current fixtures this field is structurally present but only a
+    /// subset of records carry non-empty payloads.
+    pub fn field15_bytes(&self) -> Option<&[u8]> {
+        self.field15_bytes.as_deref()
     }
 
     /// Type-4009 object ids referenced structurally by this formula record.
@@ -442,6 +475,13 @@ fn decode_auxiliary_entry_payload(message: &ProtoMessage) -> Option<FormulaAuxil
             .field(AUX_PAYLOAD_FIELD_2)
             .and_then(|field| field.value.as_varint())?,
     })
+}
+
+fn decode_raw_bytes(message: &ProtoMessage, field_number: u32) -> Option<Vec<u8>> {
+    message
+        .field(field_number)
+        .and_then(|field| field.value.as_bytes())
+        .map(<[u8]>::to_vec)
 }
 
 fn referenced_auxiliary_ids(object: &IwaObject, auxiliary_ids: &HashSet<u64>) -> Vec<u64> {
