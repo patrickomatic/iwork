@@ -1050,6 +1050,14 @@ fn numbers_sheets_expose_names_and_table_membership() -> Result<(), Error> {
         tables_for_sheet("Portfolio"),
         vec!["My Portfolio".to_owned(), "Overview".to_owned()]
     );
+    for sheet in &sheets {
+        let resolved_model_ids = spreadsheet
+            .table_models_for_sheet(sheet)
+            .iter()
+            .map(numbers::TableModel::id)
+            .collect::<Vec<_>>();
+        assert_eq!(resolved_model_ids, sheet.table_model_ids());
+    }
     for model in &models {
         let resolved_model = spreadsheet
             .table_model(model.id())

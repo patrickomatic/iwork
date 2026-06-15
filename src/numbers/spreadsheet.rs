@@ -115,6 +115,15 @@ impl Spreadsheet {
             .find(|model| model.id() == model_id)
     }
 
+    /// Resolves the table models that belong to a sheet, in sheet order.
+    pub fn table_models_for_sheet(&self, sheet: &Sheet) -> Vec<TableModel> {
+        sheet
+            .table_model_ids()
+            .iter()
+            .filter_map(|model_id| self.table_model(*model_id))
+            .collect()
+    }
+
     /// Decodes formula records from `Index/CalculationEngine.iwa`.
     ///
     /// These are type-4008 objects whose field 2 matches formula ids preserved
@@ -483,10 +492,8 @@ impl Spreadsheet {
 
     /// Decodes the tables that belong to a sheet, preserving the sheet's table order.
     pub fn tables_for_sheet(&self, sheet: &Sheet) -> Vec<(TableModel, Table)> {
-        sheet
-            .table_model_ids()
-            .iter()
-            .filter_map(|model_id| self.table_model(*model_id))
+        self.table_models_for_sheet(sheet)
+            .into_iter()
             .map(|model| {
                 let table = self.table(&model);
                 (model, table)
