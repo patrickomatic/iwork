@@ -718,6 +718,30 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
             .auxiliary_record_ids()
             .contains(&auxiliary.object_id())
     }));
+    let table_auxiliary_records = decoded
+        .iter()
+        .flat_map(|(_, table)| spreadsheet.formula_auxiliary_records_for_table(table))
+        .collect::<Vec<_>>();
+    let model_auxiliary_records = decoded
+        .iter()
+        .flat_map(|(model, _)| spreadsheet.formula_auxiliary_records_for_model(model))
+        .collect::<Vec<_>>();
+    assert!(
+        table_auxiliary_records
+            .iter()
+            .any(|auxiliary| auxiliary.object_id() == auxiliary_id),
+        "expected table-level formula auxiliary records to include referenced auxiliary id"
+    );
+    assert_eq!(
+        model_auxiliary_records
+            .iter()
+            .map(numbers::FormulaAuxiliaryRecord::object_id)
+            .collect::<Vec<_>>(),
+        table_auxiliary_records
+            .iter()
+            .map(numbers::FormulaAuxiliaryRecord::object_id)
+            .collect::<Vec<_>>()
+    );
 
     // Currency cell: decoded as CellValue::Currency with "USD" code.
     let currency = cells.iter().find_map(|c| {

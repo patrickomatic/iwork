@@ -423,7 +423,9 @@ decoded table. The expression/dependency payload remains unmapped.
 Some `FormulaRecord` payloads structurally reference type-4009 objects by object
 id. `FormulaRecord::auxiliary_record_ids()` exposes those ids, and
 `Spreadsheet::formula_auxiliary_records_for(record)` resolves them to decoded
-`FormulaAuxiliaryRecord` objects.
+`FormulaAuxiliaryRecord` objects. `formula_auxiliary_records_for_table(table)`
+and `formula_auxiliary_records_for_model(model)` lift the same join to decoded
+table scope.
 
 ## FormulaAuxiliaryRecord (message type 4009)
 

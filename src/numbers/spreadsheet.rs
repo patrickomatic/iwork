@@ -180,6 +180,29 @@ impl Spreadsheet {
             .collect()
     }
 
+    /// Resolves type-4009 auxiliary records referenced by formula cells in a table.
+    pub fn formula_auxiliary_records_for_table(
+        &self,
+        table: &Table,
+    ) -> Vec<FormulaAuxiliaryRecord> {
+        let mut records = self
+            .formula_records_for_table(table)
+            .iter()
+            .flat_map(|record| self.formula_auxiliary_records_for(record))
+            .collect::<Vec<_>>();
+        records.sort_by_key(FormulaAuxiliaryRecord::object_id);
+        records.dedup_by_key(|record| record.object_id());
+        records
+    }
+
+    /// Resolves type-4009 auxiliary records referenced by a table model's formula cells.
+    pub fn formula_auxiliary_records_for_model(
+        &self,
+        model: &TableModel,
+    ) -> Vec<FormulaAuxiliaryRecord> {
+        self.formula_auxiliary_records_for_table(&self.table(model))
+    }
+
     /// Decodes the document's sheets and their table membership.
     ///
     /// Sheet objects live in `Index/Document.iwa`. Each sheet carries its
