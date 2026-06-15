@@ -617,9 +617,23 @@ fn more_types_decodes_bool_duration_and_error_cells() -> Result<(), Error> {
         .iter()
         .flat_map(|(_, table)| spreadsheet.formula_records_for_table(table))
         .collect::<Vec<_>>();
+    let model_formula_records = decoded
+        .iter()
+        .flat_map(|(model, _)| spreadsheet.formula_records_for_model(model))
+        .collect::<Vec<_>>();
     assert!(
         !table_formula_records.is_empty(),
         "expected the decoded table to resolve at least one FormulaRecord"
+    );
+    assert_eq!(
+        model_formula_records
+            .iter()
+            .map(numbers::FormulaRecord::formula_id)
+            .collect::<Vec<_>>(),
+        table_formula_records
+            .iter()
+            .map(numbers::FormulaRecord::formula_id)
+            .collect::<Vec<_>>()
     );
     assert!(
         table_formula_records

@@ -145,6 +145,11 @@ impl Spreadsheet {
         records
     }
 
+    /// Resolves all formula records referenced by the decoded cells of a table model.
+    pub fn formula_records_for_model(&self, model: &TableModel) -> Vec<FormulaRecord> {
+        self.formula_records_for_table(&self.table(model))
+    }
+
     /// Decodes type-4009 formula auxiliary records from `Index/CalculationEngine.iwa`.
     ///
     /// Type-4008 [`FormulaRecord`] objects reference these by object id. The
