@@ -328,6 +328,18 @@ impl Spreadsheet {
             .collect()
     }
 
+    /// Resolves the sheet-level drawables that reference one 5020-5030 cluster object id.
+    pub fn sheet_drawables_for_object(&self, object_id: u64) -> Vec<SheetDrawable> {
+        self.sheet_drawables()
+            .into_iter()
+            .filter(|drawable| {
+                self.sheet_drawable_objects(drawable.object_id())
+                    .iter()
+                    .any(|object| object.identifier == Some(object_id))
+            })
+            .collect()
+    }
+
     /// Counts raw 5020-5030 downstream object types referenced by a sheet drawable.
     pub fn sheet_drawable_cluster_type_counts(&self, drawable_id: u64) -> BTreeMap<u64, usize> {
         let mut counts = BTreeMap::new();
