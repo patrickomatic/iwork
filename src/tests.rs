@@ -1106,6 +1106,15 @@ fn sheets_retain_non_table_object_references() -> Result<(), Error> {
             assert!(!drawable.payload().is_empty());
             assert!(!drawable.info_message()?.fields().is_empty());
             assert!(!drawable.payload_message()?.fields().is_empty());
+            let owning_sheet = spreadsheet
+                .sheet_for_drawable(drawable.object_id())
+                .ok_or(Error::InvalidIwa("missing owning sheet for drawable"))?;
+            assert!(
+                owning_sheet
+                    .non_table_object_reference_ids()
+                    .any(|object_id| object_id == drawable.object_id()),
+                "{path} owning sheet should retain the drawable in its non-table references"
+            );
             let references = spreadsheet.object_references(drawable.object_id());
             let reference_info = spreadsheet.object_reference_info(drawable.object_id());
             let reference_type_counts =

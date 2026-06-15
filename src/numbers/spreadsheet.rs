@@ -293,6 +293,15 @@ impl Spreadsheet {
         drawables
     }
 
+    /// Resolves the owning sheet for one sheet-level drawable object id.
+    pub fn sheet_for_drawable(&self, drawable_id: u64) -> Option<Sheet> {
+        self.sheets().into_iter().find(|sheet| {
+            sheet
+                .non_table_object_reference_ids()
+                .any(|object_id| object_id == drawable_id)
+        })
+    }
+
     /// Decodes one type-5021 sheet-level drawable by object id.
     pub fn sheet_drawable(&self, object_id: u64) -> Option<SheetDrawable> {
         let object = self.object_by_id(object_id)?;
