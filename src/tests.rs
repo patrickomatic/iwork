@@ -1048,6 +1048,21 @@ fn numbers_sheets_expose_names_and_table_membership() -> Result<(), Error> {
         tables_for_sheet("Portfolio"),
         vec!["My Portfolio".to_owned(), "Overview".to_owned()]
     );
+    for model in &models {
+        let resolved_model = spreadsheet
+            .table_model(model.id())
+            .ok_or(Error::InvalidIwa("missing resolved table model"))?;
+        assert_eq!(resolved_model.id(), model.id());
+        assert_eq!(resolved_model.name(), model.name());
+
+        let resolved_sheet = spreadsheet
+            .sheet_for_table_model(model.id())
+            .ok_or(Error::InvalidIwa("missing resolved sheet for table model"))?;
+        assert!(
+            resolved_sheet.table_model_ids().contains(&model.id()),
+            "resolved sheet should own the table model"
+        );
+    }
     assert!(
         sheets
             .iter()

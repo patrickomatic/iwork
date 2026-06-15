@@ -108,6 +108,13 @@ impl Spreadsheet {
         models
     }
 
+    /// Finds one table model by object id.
+    pub fn table_model(&self, model_id: u64) -> Option<TableModel> {
+        self.table_models()
+            .into_iter()
+            .find(|model| model.id() == model_id)
+    }
+
     /// Decodes formula records from `Index/CalculationEngine.iwa`.
     ///
     /// These are type-4008 objects whose field 2 matches formula ids preserved
@@ -244,6 +251,13 @@ impl Spreadsheet {
         let mut sheets = Sheet::collect(&self.document, &table_info_to_model_ids);
         sheets.sort_by_key(Sheet::id);
         sheets
+    }
+
+    /// Resolves the owning sheet for one table-model object id.
+    pub fn sheet_for_table_model(&self, model_id: u64) -> Option<Sheet> {
+        self.sheets()
+            .into_iter()
+            .find(|sheet| sheet.table_model_ids().contains(&model_id))
     }
 
     /// Decodes sheet-level drawable objects referenced from the document's sheets.

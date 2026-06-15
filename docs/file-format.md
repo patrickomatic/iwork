@@ -188,7 +188,9 @@ sheet's `TableInfo` objects. The `TableModel` (6001) references its storage
 objects and carries the table name; one `TableInfo` (6000) usually wraps one
 `TableModel`, while some pivot-table structures can reference more than one. The
 `6000`/`6001` objects live inside `Index/CalculationEngine.iwa`, not
-`Index/Document.iwa`.
+`Index/Document.iwa`. `Spreadsheet::table_model(id)` and
+`sheet_for_table_model(id)` expose the resolved table-model and owning-sheet
+lookups directly.
 
 Type 5021 is grounded as `SheetDrawable`: current fixtures reference every 5021
 object from `Sheet.field 2` as a non-table sheet-level object, and each 5021
